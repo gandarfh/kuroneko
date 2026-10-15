@@ -90,6 +90,7 @@ Captura automática do Meet, pipeline de transcrição, revisão (janela de reun
 - WhisperKit não implementa `noSpeechProb` (sempre 0) e `detectLangauge` só devolve o idioma vencedor: a proteção contra alucinação é VAD + `HallucinationFilter`, e as pontuações de pt/es/en vêm de um `TokenSampling` próprio (`LanguageScoreSampler`)
 - Espanhol com sotaque brasileiro é detectado como pt (pt 0.77 / es 0.15): enunciados com idioma duvidoso são transcritos isolados para o Whisper não "traduzir" o trecho
 - Meet: URL e título da aba continuam iguais depois de sair da call; o fim da call é detectado pela saída de áudio do Chrome
+- `Bundle.module` do SwiftPM só procura ao lado do `.app` e no `.build/` da máquina que compilou (no release, o runner do CI): no app instalado, qualquer acesso derruba o app. Recursos próprios são lidos de `Contents/Resources` pelo `Bundle.main.resourceURL`; o `KeyboardShortcuts.Recorder` não pode ser usado (lê os textos por `Bundle.module`). Para testar como no notebook, renomear `.build` com o app aberto
 - Deleção de reunião apaga filhos explicitamente (não confia no FK cascade) para os triggers de sincronização do FTS5 dispararem — manter esse padrão em novas tabelas indexadas. Apagar reunião ou nota também apaga os arquivos (pasta da reunião, anexos) depois das linhas.
 
 ## Do NOT

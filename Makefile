@@ -32,8 +32,9 @@ endif
 ifneq ($(BUILD_NUMBER),)
 	plutil -replace CFBundleVersion -string "$(BUILD_NUMBER)" $(BUNDLE)/Contents/Info.plist
 endif
-	# SwiftPM resource bundles (KeyboardShortcuts strings, FluidAudio, GRDB);
-	# without them the app only works while .build/ exists.
+	# SwiftPM resource bundles. Bundle.module never looks here (only next to
+	# the .app and in .build/ of the machine that built it), so the app reads
+	# its own through Bundle.main.resourceURL and must not touch Bundle.module.
 	cp -R .build/release/*.bundle $(BUNDLE)/Contents/Resources/
 	# Nested code is signed before the bundle that seals it.
 	codesign --force --sign "$(SIGN_IDENTITY)" --identifier com.gandarfh.kuroneko.cli $(CLI_IN_BUNDLE)

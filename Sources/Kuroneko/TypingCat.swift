@@ -108,8 +108,16 @@ final class CatPlayer {
         image = (animation.clip == .idle ? idle : typing)[animation.frame]
     }
 
+    /// The SwiftPM resource bundle, which the Makefile puts in
+    /// Contents/Resources (`swift run` keeps it next to the binary).
+    /// `Bundle.module` only looks next to the .app and in the folder it was
+    /// built in, so in an installed app it crashes.
+    private static let resources = [Bundle.main.resourceURL, Bundle.main.bundleURL]
+        .compactMap { $0.flatMap { Bundle(url: $0.appendingPathComponent("Kuroneko_Kuroneko.bundle")) } }
+        .first
+
     private static func frames(named prefix: String) -> [NSImage] {
-        (Bundle.module.urls(forResourcesWithExtension: "png", subdirectory: "TypingCat") ?? [])
+        (resources?.urls(forResourcesWithExtension: "png", subdirectory: "TypingCat") ?? [])
             .filter { $0.lastPathComponent.hasPrefix(prefix + "-") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .compactMap(NSImage.init(contentsOf:))

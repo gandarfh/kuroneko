@@ -1,4 +1,3 @@
-import KeyboardShortcuts
 import SwiftUI
 
 struct SettingsView: View {
@@ -43,7 +42,11 @@ struct SettingsView: View {
                     Text("⌘⌘ (dois toques no Command)")
                 }
                 commandDoubleTapStatus
-                KeyboardShortcuts.Recorder("Outro atalho:", name: .quickNote)
+                // No KeyboardShortcuts.Recorder: it reads its strings through
+                // Bundle.module, which crashes an installed app.
+                LabeledContent("Outro atalho:") {
+                    Text("⌃⌥⌘N")
+                }
                 Text("Funciona em qualquer app durante uma gravação. Na nota, ⌘1, ⌘2 e ⌘3 anexam um print da janela, da tela inteira ou de uma área. Use #tags, como #acao ou #duvida. Digite @Nome enquanto alguém fala para o Kuroneko saber quem é aquela voz.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
