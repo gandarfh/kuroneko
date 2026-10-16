@@ -81,8 +81,8 @@ Telas (`Sources/Kuroneko`): uma janela só (`MeetingsView`, título da seção),
 - Benchmark de diarização e reconhecimento de vozes em reuniões reais do corpus AMI: `KURONEKO_AMI=/pasta swift test --filter DiarizationBenchmark` (instruções no teste; baseline 98%/98%; em lotes de 2 min como durante a call: 92%/95%, mesma pessoa entre lotes 0.80–0.98, pessoas diferentes ≤ 0.48)
 - Vozes sintéticas do `say` não servem para testar diarização: o modelo funde vozes do macOS que soam parecidas
 - CI: `.github/workflows/ci.yml` roda `swift test` em todo push (runner `macos-26`)
-- Release: `git tag vX.Y.Z && git push origin vX.Y.Z` → `release.yml` monta o app assinado ad hoc e publica `Kuroneko-X.Y.Z.zip`, `SHA256SUMS` e `install.sh` no GitHub Release (`workflow_dispatch` = dry run sem publicar)
-- Instalar/atualizar: `curl -fsSL https://github.com/gandarfh/kuroneko/releases/latest/download/install.sh | sh` — confere o checksum, re-assina com o "Apple Development" local (mesmo designated requirement do `make run`, então as permissões do TCC sobrevivem às atualizações), recusa atualizar durante uma gravação e instala em `/Applications`
+- Release: `git tag vX.Y.Z && git push origin vX.Y.Z` → `release.yml` monta o app assinado com o certificado do projeto ("Kuroneko Release Signing", autoassinado, nos secrets `KURONEKO_SIGNING_P12`/`KURONEKO_SIGNING_PASSWORD`, criados uma vez por `scripts/signing-cert.sh`; sem eles, ad hoc) e publica `Kuroneko-X.Y.Z.zip`, `SHA256SUMS` e `install.sh` no GitHub Release (`workflow_dispatch` = dry run sem publicar)
+- Instalar/atualizar: `curl -fsSL https://github.com/gandarfh/kuroneko/releases/latest/download/install.sh | sh` — confere o checksum, mantém a assinatura da release (a mesma em todas as versões: as permissões do TCC sobrevivem às atualizações; build ad hoc é re-assinada com o "Apple Development" local, se houver), limpa as permissões (`tccutil reset All`) quando a assinatura muda, recusa atualizar durante uma gravação e instala em `/Applications`
 
 ## Current Focus
 

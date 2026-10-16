@@ -9,7 +9,7 @@
 #
 #   KURONEKO_INSTALL_DIR   where the app goes (default /Applications)
 #   KURONEKO_BIN_DIR       where the `kuroneko` command is linked (default ~/.local/bin)
-#   KURONEKO_SIGN_IDENTITY certificate to sign with (default "Apple Development")
+#   KURONEKO_SIGN_IDENTITY certificate to re-sign with (default: keep the release's)
 #   KURONEKO_FORCE=1       reinstall the same version / update mid-recording
 set -eu
 
@@ -17,7 +17,7 @@ REPO="gandarfh/kuroneko"
 APP="Kuroneko"
 BUNDLE_ID="com.gandarfh.kuroneko"
 INSTALL_DIR="${KURONEKO_INSTALL_DIR:-/Applications}"
-SIGN_IDENTITY="${KURONEKO_SIGN_IDENTITY:-Apple Development}"
+SIGN_IDENTITY="${KURONEKO_SIGN_IDENTITY:-}"
 FORCE="${KURONEKO_FORCE:-}"
 DATABASE="$HOME/Library/Application Support/Kuroneko/kuroneko.sqlite"
 TARGET="${INSTALL_DIR}/${APP}.app"
@@ -27,6 +27,11 @@ CLI="Contents/Helpers/kuroneko"
 fail() {
   echo "erro: $*" >&2
   exit 1
+}
+
+# Who signed a bundle: the certificate's name, or "adhoc".
+signer() {
+  codesign -dvv "$1" 2>&1 | awk -F= '/^Authority=/ { print $2; exit } /^Signature=adhoc/ { print "adhoc"; exit }'
 }
 
 [ "$(uname -s)" = "Darwin" ] || fail "o Kuroneko só roda no macOS"
@@ -51,8 +56,10 @@ if [ "$installed" = "$version" ] && [ -z "$FORCE" ]; then
   exit 0
 fi
 
+# -a: when the app itself runs this script (Ajustes → Atualizar), it is an
+# ancestor, which pgrep and pkill leave out by default.
 running=""
-if pgrep -x "$APP" >/dev/null 2>&1; then
+if pgrep -a -x "$APP" >/dev/null 2>&1; then
   running=1
   # Quitting mid-call would cut the recording in two.
   recording=0
@@ -85,18 +92,27 @@ ditto -x -k "${workdir}/${asset}" "${workdir}/app"
 app="${workdir}/app/${APP}.app"
 [ -d "$app" ] || fail "o pacote não contém ${APP}.app"
 
-# macOS ties the mic, system audio and Automation permissions to the app's
-# signature. Releases are signed ad hoc, which changes with every build, so
-# the app is re-signed with the user's own certificate: then each update
-# keeps the permissions already granted.
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"${SIGN_IDENTITY}"; then
+# macOS ties the mic, system audio, screen and Automation permissions to the
+# app's signature. Releases are signed with the project's certificate, the
+# same in every version, so the permissions survive updates. An ad hoc build
+# (a fork) changes with every build: it is re-signed with the user's own
+# "Apple Development" certificate when there is one.
+identity="$SIGN_IDENTITY"
+if [ -z "$identity" ] && [ "$(signer "$app")" = "adhoc" ] \
+  && security find-identity -v -p codesigning 2>/dev/null | grep -q '"Apple Development'; then
+  identity="Apple Development"
+fi
+if [ -n "$identity" ]; then
   # Nested code first, then the bundle that seals it.
   if [ -f "${app}/${CLI}" ]; then
-    codesign --force --sign "$SIGN_IDENTITY" --identifier com.gandarfh.kuroneko.cli "${app}/${CLI}"
+    codesign --force --sign "$identity" --identifier com.gandarfh.kuroneko.cli "${app}/${CLI}"
   fi
-  codesign --force --sign "$SIGN_IDENTITY" "$app"
-else
-  echo "aviso: certificado \"${SIGN_IDENTITY}\" não encontrado; o macOS vai pedir as permissões de novo a cada atualização" >&2
+  codesign --force --sign "$identity" "$app"
+fi
+new_signer=$(signer "$app")
+old_signer=""
+if [ -d "$TARGET" ]; then
+  old_signer=$(signer "$TARGET")
 fi
 
 if [ -n "$running" ]; then
@@ -104,10 +120,10 @@ if [ -n "$running" ]; then
   # cut short resumes on the next launch.
   osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   waited=0
-  while pgrep -x "$APP" >/dev/null 2>&1; do
+  while pgrep -a -x "$APP" >/dev/null 2>&1; do
     waited=$((waited + 1))
     if [ "$waited" -gt 20 ]; then
-      pkill -x "$APP" || true
+      pkill -a -x "$APP" || true
       sleep 1
       break
     fi
@@ -124,6 +140,17 @@ if [ -n "$installed" ]; then
   echo "Kuroneko atualizado de ${installed} para ${version} em ${TARGET}."
 else
   echo "Kuroneko ${version} instalado em ${TARGET}."
+fi
+
+# Permissions granted to another signature still look on in Ajustes but no
+# longer work, and macOS doesn't ask again; cleared, it asks once more.
+if [ -n "$old_signer" ] && { [ "$old_signer" != "$new_signer" ] || [ "$new_signer" = "adhoc" ]; }; then
+  tccutil reset All "$BUNDLE_ID" >/dev/null 2>&1 || true
+  if [ "$new_signer" = "adhoc" ]; then
+    echo "aviso: esta versão não tem assinatura fixa; o macOS vai pedir as permissões de novo a cada atualização" >&2
+  else
+    echo "A assinatura do app mudou: o macOS vai pedir as permissões de novo, uma última vez."
+  fi
 fi
 
 # A link, not a copy: each update brings the matching command along.
