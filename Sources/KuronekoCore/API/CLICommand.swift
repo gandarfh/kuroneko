@@ -3,7 +3,8 @@ import Foundation
 /// The `kuroneko` command line: one entry point for editors, scripts and
 /// Claude. Everything it prints is JSON, except `transcript` and `help`.
 public enum CLICommand: Equatable, Sendable {
-    case meetings
+    /// Only meetings carrying every one of `tags`.
+    case meetings(tags: [String])
     case meeting(id: Int64)
     case transcript(id: Int64)
     case search(String)
@@ -19,13 +20,16 @@ public enum CLICommand: Equatable, Sendable {
     case linkRemove(linkId: Int64)
     case tasks
     case taskDone(TaskRef, done: Bool)
+    case tags
+    case tagAdd(meetingId: Int64, tag: String)
+    case tagRemove(meetingId: Int64, tag: String)
     case play(meetingId: Int64, fromMs: Int)
     case help
 
     public static let usage = """
         kuroneko — reuniões do Kuroneko pela linha de comando (saída em JSON)
 
-          kuroneko meetings                         reuniões, mais recentes primeiro
+          kuroneko meetings [--tag <tag>]…          reuniões, mais recentes primeiro (só com as tags)
           kuroneko meeting <id>                     transcrição, vozes, notas e resumos
           kuroneko transcript <id>                  a reunião em Markdown
           kuroneko search <texto>                   busca em falas e notas
@@ -40,6 +44,9 @@ public enum CLICommand: Equatable, Sendable {
           kuroneko link rm <id-do-link>
           kuroneko tasks                            pendências abertas de todas as reuniões
           kuroneko task done|undo <ref>             marca a pendência como feita (ou não)
+          kuroneko tags                             tags criadas, com regras e quantas reuniões têm
+          kuroneko tag add <id> <tag>               põe a tag na reunião (project=pix; cria se não existe)
+          kuroneko tag rm <id> <tag>                tira a tag da reunião (nada automático a põe de volta)
           kuroneko play <id> [--at <tempo>]         toca até o fim ou Ctrl-C; imprime a posição
 
         <tempo>: 03:21, 1:03:21, 201000ms ou segundos.
@@ -53,8 +60,13 @@ public enum CLICommand: Equatable, Sendable {
         case "help", "-h", "--help":
             return .help
         case "meetings", "list":
+            var tags: [String] = []
+            while let text = try takeOption("--tag", from: &args) {
+                guard let tag = TagName.normalize(text) else { throw CLIError("tag inválida: \(text)") }
+                tags.append(tag)
+            }
             try expectNoMore(args)
-            return .meetings
+            return .meetings(tags: tags)
         case "meeting", "show":
             return .meeting(id: try takeId(&args))
         case "transcript":
@@ -124,6 +136,20 @@ public enum CLICommand: Equatable, Sendable {
             }
             guard let ref = TaskRef(args[1]) else { throw CLIError("pendência inválida: \(args[1])") }
             return .taskDone(ref, done: args[0] == "done")
+        case "tags":
+            try expectNoMore(args)
+            return .tags
+        case "tag":
+            let usage = CLIError("uso: kuroneko tag add|rm <id> <tag>")
+            guard !args.isEmpty else { throw usage }
+            let action = args.removeFirst()
+            let id = try takeId(&args)
+            guard let tag = TagName.normalize(args.joined(separator: " ")) else { throw usage }
+            switch action {
+            case "add": return .tagAdd(meetingId: id, tag: tag)
+            case "rm": return .tagRemove(meetingId: id, tag: tag)
+            default: throw usage
+            }
         case "play":
             let id = try takeId(&args)
             let at = try takeOption("--at", from: &args)

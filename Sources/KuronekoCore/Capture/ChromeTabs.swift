@@ -19,6 +19,19 @@ public enum MeetDetector {
         return components.path.wholeMatch(of: /\/[a-z]{3}-[a-z]{4}-[a-z]{3}/) != nil
     }
 
+    /// "meet/abc-defg-hij": the room, the same for every meeting of a
+    /// recurring event.
+    public static func sourceRef(forURL url: String) -> String? {
+        guard isMeetRoom(url), let path = URLComponents(string: url)?.path else { return nil }
+        return "meet/" + path.dropFirst()
+    }
+
+    /// The room code written in a title ("rws-ftoc-imb · 14 de out."), as
+    /// `sourceRef(forURL:)` gives it.
+    public static func sourceRef(inTitle title: String) -> String? {
+        title.firstMatch(of: /\b[a-z]{3}-[a-z]{4}-[a-z]{3}\b/).map { "meet/\($0.output)" }
+    }
+
     public static func meetTab(in tabs: [BrowserTab]) -> BrowserTab? {
         tabs.first { isMeetRoom($0.url) }
     }

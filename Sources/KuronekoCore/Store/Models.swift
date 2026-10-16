@@ -17,13 +17,13 @@ public enum ProcessingStatus: String, Codable, Sendable {
     case failed
 }
 
-/// Free-form labels ("daily", "1on1", "acao") instead of fixed categories, so
-/// new kinds of meetings and notes never need a schema change. In text they
-/// are written as hashtags.
+/// Free-form labels ("acao", "duvida", "project=pix") instead of fixed
+/// categories, so new kinds of meetings and notes never need a schema
+/// change. In text they are written as hashtags.
 public enum Tags {
     public static func parse(_ text: String) -> [String] {
         var seen = Set<String>()
-        return text.matches(of: /#([\p{L}\p{N}_-]+)/).compactMap { match in
+        return text.matches(of: /#([\p{L}\p{N}_=-]+)/).compactMap { match in
             let tag = String(match.output.1).lowercased()
             return seen.insert(tag).inserted ? tag : nil
         }
@@ -35,9 +35,11 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
     public var startedAt: Date
     public var endedAt: Date?
     public var title: String
-    public var tags: [String]
     /// What recorded it ("meet", "manual"); free-form for future sources.
     public var source: String?
+    /// Where it was held ("meet/abc-defg-hij"): the same for every meeting
+    /// of a recurring event.
+    public var sourceRef: String?
     /// When the audio files actually start: the zero of every segment and
     /// note timestamp, which can lag `startedAt` by a few seconds.
     public var audioStartedAt: Date?
@@ -54,8 +56,8 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
         startedAt: Date,
         endedAt: Date? = nil,
         title: String,
-        tags: [String] = [],
         source: String? = nil,
+        sourceRef: String? = nil,
         audioStartedAt: Date? = nil,
         audioMicPath: String? = nil,
         audioSystemPath: String? = nil,
@@ -67,8 +69,8 @@ public struct Meeting: Codable, Identifiable, Equatable, Sendable {
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.title = title
-        self.tags = tags
         self.source = source
+        self.sourceRef = sourceRef
         self.audioStartedAt = audioStartedAt
         self.audioMicPath = audioMicPath
         self.audioSystemPath = audioSystemPath

@@ -141,8 +141,8 @@ struct MeetingHeaderView: View {
             Text(Self.dateLine(meeting))
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            if !meeting.tags.isEmpty {
-                Text(meeting.tags.map { "#\($0)" }.joined(separator: " "))
+            if !data.tags.isEmpty {
+                Text(data.tags.map { "#\($0.tag.name)" }.joined(separator: " "))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

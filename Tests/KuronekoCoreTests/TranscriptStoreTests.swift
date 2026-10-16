@@ -39,7 +39,7 @@ import Testing
         let db = try AppDatabase(queue, storage: .temporary())
 
         let daily = try #require(try db.meeting(id: 1))
-        #expect(daily.tags == ["daily"])
+        #expect(try db.meetingTags(meetingId: 1).map(\.tag.name) == ["daily"])
         #expect(daily.status == .done)
         let meet = try #require(try db.meeting(id: 2))
         #expect(meet.status == .recorded)

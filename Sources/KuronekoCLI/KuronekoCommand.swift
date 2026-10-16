@@ -27,8 +27,8 @@ struct KuronekoCommand {
         switch command {
         case .help:
             print(CLICommand.usage)
-        case .meetings:
-            try output(db.meetingList())
+        case .meetings(let tags):
+            try output(MeetingListLayout.filter(db.meetingList(), tags: Set(tags)))
         case .meeting(let id):
             try output(try export(id, db: db))
         case .transcript(let id):
@@ -92,6 +92,22 @@ struct KuronekoCommand {
             let task = try db.setTaskDone(ref, done)
             changed()
             try output(task)
+        case .tags:
+            try output(db.tagList())
+        case .tagAdd(let meetingId, let tag):
+            _ = try export(meetingId, db: db)
+            try db.addTag(tag, meetingId: meetingId)
+            changed()
+            try output(["tags": try db.meetingTags(meetingId: meetingId).map(\.tag.name)])
+        case .tagRemove(let meetingId, let tag):
+            _ = try export(meetingId, db: db)
+            guard let applied = try db.meetingTags(meetingId: meetingId).first(where: { $0.tag.name == tag }),
+                  let tagId = applied.tag.id else {
+                throw CLIError("a reunião \(meetingId) não tem a tag \(tag)")
+            }
+            try db.removeTag(tagId, meetingId: meetingId)
+            changed()
+            try output(["tags": try db.meetingTags(meetingId: meetingId).map(\.tag.name)])
         case .play(let meetingId, let fromMs):
             try Playback.play(try export(meetingId, db: db), fromMs: fromMs)
         }

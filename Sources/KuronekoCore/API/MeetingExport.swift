@@ -40,6 +40,19 @@ public struct MeetingListItem: Codable, Equatable, Sendable {
     public var unnamedVoiceCount: Int
 }
 
+/// A tag of the catalog, for `kuroneko tags`.
+public struct TagListItem: Codable, Equatable, Sendable {
+    public var id: Int64
+    public var name: String
+    /// What comes before "=" ("project" in "project=pix"); absent for a plain tag.
+    public var key: String?
+    public var value: String
+    public var description: String?
+    /// Conditions that put it on meetings by themselves (`TagCondition`).
+    public var rules: [TagCondition]
+    public var meetingCount: Int
+}
+
 /// Everything about one meeting, in the shape every client reads: the
 /// `kuroneko` command prints it as JSON.
 public struct MeetingExport: Codable, Equatable, Sendable {
@@ -164,7 +177,24 @@ public struct MeetingExport: Codable, Equatable, Sendable {
 }
 
 extension AppDatabase {
+    public func tagList() throws -> [TagListItem] {
+        let counts = try tagCounts()
+        return try tags().compactMap { tag in
+            guard let id = tag.id else { return nil }
+            return TagListItem(
+                id: id,
+                name: tag.name,
+                key: tag.key,
+                value: tag.value,
+                description: tag.description,
+                rules: tag.rules,
+                meetingCount: counts[id] ?? 0
+            )
+        }
+    }
+
     public func meetingList(now: Date = Date(), calendar: Calendar = .current) throws -> [MeetingListItem] {
+        let tags = try tagNamesByMeeting()
         let people = try peopleByMeeting()
         let notes = try noteCounts()
         let documents = try documentKinds()
@@ -183,7 +213,7 @@ extension AppDatabase {
                     endedAt: meeting.endedAt,
                     durationMs: meeting.durationMs,
                     status: meeting.status.rawValue,
-                    tags: meeting.tags,
+                    tags: tags[id] ?? [],
                     people: people[id] ?? [],
                     noteCount: notes[id] ?? 0,
                     documents: documents[id] ?? [],
@@ -269,7 +299,7 @@ extension AppDatabase {
             durationMs: meeting.durationMs,
             status: meeting.status.rawValue,
             statusDetail: meeting.statusDetail,
-            tags: meeting.tags,
+            tags: try meetingTags(meetingId: meetingId).map(\.tag.name),
             source: meeting.source,
             audio: .init(system: meeting.audioSystemPath, mic: meeting.audioMicPath),
             voices: voices,

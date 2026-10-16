@@ -430,9 +430,9 @@ final class AppState {
 
     // MARK: - Meetings
 
-    private func beginMeeting(title: String, source: String) {
+    private func beginMeeting(title: String, source: String, sourceRef: String? = nil) {
         do {
-            let meeting = try db.startMeeting(title: title, source: source)
+            let meeting = try db.startMeeting(title: title, source: source, sourceRef: sourceRef)
             activeMeeting = meeting
             lastError = nil
             dataVersion += 1
@@ -505,7 +505,11 @@ final class AppState {
             FileLog.shared.append("auto: iniciando reunião")
             let stamp = Date().formatted(date: .abbreviated, time: .shortened)
             let title = meetTab.flatMap { MeetDetector.meetingTitle(fromTabTitle: $0.title) } ?? "Reunião"
-            beginMeeting(title: "\(title) · \(stamp)", source: "meet")
+            beginMeeting(
+                title: "\(title) · \(stamp)",
+                source: "meet",
+                sourceRef: meetTab.flatMap { MeetDetector.sourceRef(forURL: $0.url) }
+            )
         case .stop:
             FileLog.shared.append("auto: encerrando reunião")
             finishActiveMeeting()

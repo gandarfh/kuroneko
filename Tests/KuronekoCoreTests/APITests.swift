@@ -5,7 +5,7 @@ import Testing
 @Suite struct CLICommandTests {
     @Test func parsesEveryCommand() throws {
         #expect(try CLICommand.parse([]) == .help)
-        #expect(try CLICommand.parse(["meetings"]) == .meetings)
+        #expect(try CLICommand.parse(["meetings"]) == .meetings(tags: []))
         #expect(try CLICommand.parse(["meeting", "4"]) == .meeting(id: 4))
         #expect(try CLICommand.parse(["transcript", "4"]) == .transcript(id: 4))
         #expect(try CLICommand.parse(["search", "migrar", "banco"]) == .search("migrar banco"))

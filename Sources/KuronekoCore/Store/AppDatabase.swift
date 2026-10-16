@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 public final class AppDatabase: Sendable {
-    private let writer: any DatabaseWriter
+    let writer: any DatabaseWriter
     /// Where the files some rows point to live (attachments, audio).
     public let storage: MeetingStorage
 
@@ -185,21 +185,66 @@ public final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v7") { db in
+            // A catalog of tags the user creates; meetings get them by hand,
+            // by the tags' rules or from the previous meeting in the same room.
+            try db.create(table: "tag") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name", .text).notNull().unique()
+                t.column("description", .text)
+                t.column("rules", .text).notNull().defaults(to: "[]")
+                t.column("createdAt", .datetime).notNull()
+            }
+            try db.create(table: "meetingTag") { t in
+                t.belongsTo("meeting", onDelete: .cascade).notNull()
+                t.belongsTo("tag", onDelete: .cascade).notNull()
+                t.column("source", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("removedAt", .datetime)
+                t.primaryKey(["meetingId", "tagId"])
+            }
+            // The free tags meetings had become the user's tags.
+            let now = Date()
+            for row in try Row.fetchAll(db, sql: "SELECT id, tags FROM meeting") {
+                let names = (try? JSONDecoder().decode([String].self, from: Data((row["tags"] as String).utf8))) ?? []
+                for name in Set(names.compactMap(TagName.normalize)) {
+                    _ = try TagStore.addManual(db, name: name, meetingId: row["id"], at: now)
+                }
+            }
+            try db.alter(table: "meeting") { t in t.drop(column: "tags") }
+            // Where it was held, so a recurring meeting is recognized; meetings
+            // recorded from Meet so far carry the room code in their title.
+            try db.alter(table: "meeting") { t in t.add(column: "sourceRef", .text) }
+            for row in try Row.fetchAll(db, sql: "SELECT id, title FROM meeting") {
+                guard let room = MeetDetector.sourceRef(inTitle: row["title"]) else { continue }
+                try db.execute(sql: "UPDATE meeting SET sourceRef = ? WHERE id = ?", arguments: [room, row["id"]])
+            }
+        }
+
         return migrator
     }
 
     // MARK: - Meetings
 
+    /// `tags` are put on by hand; a meeting in a room held before also takes
+    /// the tags of the last meeting there, and every tag whose rules hold.
     @discardableResult
     public func startMeeting(
         title: String,
         tags: [String] = [],
         source: String? = nil,
+        sourceRef: String? = nil,
         at date: Date = Date()
     ) throws -> Meeting {
         try writer.write { db in
-            var meeting = Meeting(startedAt: date, title: title, tags: tags, source: source)
+            var meeting = Meeting(startedAt: date, title: title, source: source, sourceRef: sourceRef)
             try meeting.insert(db)
+            let id = meeting.id!
+            for name in Set(tags.compactMap(TagName.normalize)) {
+                _ = try TagStore.addManual(db, name: name, meetingId: id, at: date)
+            }
+            try TagStore.inheritFromSameRoom(db, meetingId: id, at: date)
+            try TagStore.applyRules(db, meetingIds: [id], at: date)
             return meeting
         }
     }
@@ -243,12 +288,18 @@ public final class AppDatabase: Sendable {
         }
     }
 
-    public func renameMeeting(_ id: Int64, title: String) throws {
+    /// A #tag new in the title is put on by hand; rules about the title
+    /// are checked again.
+    public func renameMeeting(_ id: Int64, title: String, at date: Date = Date()) throws {
         try writer.write { db in
             guard var meeting = try Meeting.fetchOne(db, key: id) else { return }
+            let added = Set(Tags.parse(title)).subtracting(Tags.parse(meeting.title))
             meeting.title = title
-            meeting.tags = Array(Set(meeting.tags + Tags.parse(title))).sorted()
             try meeting.update(db)
+            for name in added.compactMap(TagName.normalize) {
+                _ = try TagStore.addManual(db, name: name, meetingId: id, at: date)
+            }
+            try TagStore.applyRules(db, meetingIds: [id], at: date)
         }
     }
 
@@ -323,6 +374,7 @@ public final class AppDatabase: Sendable {
             try MeetingSpeaker.filter(Column("meetingId") == id).deleteAll(db)
             try MeetingDocument.filter(Column("meetingId") == id).deleteAll(db)
             try MeetingLink.filter(Column("meetingId") == id).deleteAll(db)
+            try MeetingTag.filter(Column("meetingId") == id).deleteAll(db)
             _ = try Meeting.deleteOne(db, key: id)
         }
         removeFiles([storage.meetingDirectory(id: id)])
@@ -623,6 +675,7 @@ public final class AppDatabase: Sendable {
             meeting.status = .done
             meeting.statusDetail = nil
             try meeting.update(db)
+            try TagStore.applyRules(db, meetingIds: [meetingId], at: Date())
         }
     }
 
@@ -652,6 +705,7 @@ public final class AppDatabase: Sendable {
                     .filter(Column("meetingId") == meetingId && Column("diarCluster") == cluster && Column("personId") == nil)
                     .updateAll(db, Column("personId").set(to: personId))
             }
+            try TagStore.applyRules(db, meetingIds: [meetingId], at: Date())
         }
     }
 
@@ -677,8 +731,8 @@ public final class AppDatabase: Sendable {
     /// Names a voice of a meeting. The person is created when new, every
     /// segment of that voice is attributed to them, the meeting's texts (the
     /// summary) call them by the new name instead of "Pessoa N" or the name
-    /// they had, and the voice becomes a voiceprint so future meetings
-    /// recognize them automatically.
+    /// they had, the voice becomes a voiceprint so future meetings recognize
+    /// them automatically, and rules about who was there are checked again.
     @discardableResult
     public func assignSpeaker(meetingId: Int64, diarCluster: Int, personName: String) throws -> Person {
         let name = personName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -722,6 +776,7 @@ public final class AppDatabase: Sendable {
                 )
                 try voiceprint.insert(db)
             }
+            try TagStore.applyRules(db, meetingIds: [meetingId], at: Date())
             return person
         }
     }
