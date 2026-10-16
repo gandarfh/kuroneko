@@ -424,7 +424,7 @@ struct MeetingDetailView: View {
             case .note:
                 focus = nil
                 return true
-            case .title, .link:
+            case .title, .link, .tag:
                 // The field puts back what it had.
                 return false
             case nil:

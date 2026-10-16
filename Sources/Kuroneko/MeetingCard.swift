@@ -1,11 +1,13 @@
 import KuronekoCore
 import SwiftUI
 
-/// A change being typed into one card of the list: its name or a new link.
+/// A change being typed into one card of the list: its name, a new link or
+/// a new tag.
 struct CardEdit: Equatable {
     enum Field: Equatable {
         case title
         case link
+        case tag
     }
 
     var meetingId: Int64
@@ -15,10 +17,10 @@ struct CardEdit: Equatable {
     var invalid = false
 }
 
-/// A meeting of the list: when and how long, title, people, links and what
-/// it has (summary, pendências, notes, voices to name). Clicking it opens
-/// the meeting; ⋯ renames, adds a link, summarizes, transcribes again or
-/// deletes it.
+/// A meeting of the list: when and how long, title, people, tags, links and
+/// what it has (summary, pendências, notes, voices to name). Clicking it
+/// opens the meeting, a tag shows only the meetings with it; ⋯ renames,
+/// tags, adds a link, summarizes, transcribes again or deletes it.
 struct MeetingCard: View {
     let item: MeetingListItem
     let meeting: Meeting?
@@ -27,8 +29,11 @@ struct MeetingCard: View {
     /// Nothing was said or written in it: nothing to summarize.
     let isSilent: Bool
     let state: AppState
+    /// Every tag there is, for ⋯ > Tags.
+    let catalog: [Tag]
     @Binding var edit: CardEdit?
     let open: () -> Void
+    let showTag: (String) -> Void
 
     @State private var confirmingDelete = false
     @FocusState private var fieldFocused: Bool
@@ -47,6 +52,20 @@ struct MeetingCard: View {
                 Text(PeopleText.line(item.people))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+            }
+            if !item.tags.isEmpty {
+                WrappingLayout {
+                    ForEach(item.tags, id: \.self) { name in
+                        Button { showTag(name) } label: {
+                            Chip(text: name, tint: .gray)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Ver só as reuniões com \(name)")
+                    }
+                }
+            }
+            if editing(.tag) {
+                tagField
             }
             if !item.links.isEmpty {
                 WrappingLayout {
@@ -99,6 +118,7 @@ struct MeetingCard: View {
     private var actions: some View {
         Menu {
             Button("Renomear") { begin(.title, text: item.title) }
+            tagsMenu
             Button("Adicionar link") { begin(.link, text: "") }
             if state.isSummarizing(item.id) {
                 Button("Gerando o resumo…") {}.disabled(true)
@@ -119,6 +139,25 @@ struct MeetingCard: View {
         .fixedSize()
         .help("Ações da reunião")
         .accessibilityLabel("Ações da reunião")
+    }
+
+    private var tagsMenu: some View {
+        Menu("Tags") {
+            ForEach(catalog, id: \.id) { tag in
+                Toggle(tag.name, isOn: Binding(
+                    get: { item.tags.contains(tag.name) },
+                    set: { on in
+                        if on {
+                            state.addTag(tag.name, meetingId: item.id)
+                        } else if let id = tag.id {
+                            state.removeTag(id, meetingId: item.id)
+                        }
+                    }
+                ))
+            }
+            if !catalog.isEmpty { Divider() }
+            Button("Nova tag…") { begin(.tag, text: "") }
+        }
     }
 
     @ViewBuilder
@@ -153,6 +192,20 @@ struct MeetingCard: View {
                 .onSubmit(saveTitle)
             Button("Salvar", action: saveTitle)
                 .buttonStyle(.borderedProminent)
+            Button("Cancelar", action: cancel)
+                .keyboardShortcut(.cancelAction)
+        }
+        .onAppear(perform: focusField)
+    }
+
+    private var tagField: some View {
+        HStack(spacing: 6) {
+            TextField("Nova tag, como project=pix", text: editText)
+                .textFieldStyle(.roundedBorder)
+                .focused($fieldFocused)
+                .onSubmit(saveTag)
+            Button("+ Tag", action: saveTag)
+                .disabled(TagName.normalize(edit?.text ?? "") == nil)
             Button("Cancelar", action: cancel)
                 .keyboardShortcut(.cancelAction)
         }
@@ -213,6 +266,12 @@ struct MeetingCard: View {
         if let text = edit?.text, text.trimmingCharacters(in: .whitespacesAndNewlines) != item.title {
             state.renameMeeting(item.id, to: text)
         }
+        edit = nil
+    }
+
+    private func saveTag() {
+        guard let text = edit?.text, TagName.normalize(text) != nil else { return }
+        state.addTag(text, meetingId: item.id)
         edit = nil
     }
 

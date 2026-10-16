@@ -46,7 +46,7 @@ enum MeetingStyle {
 
 /// Which text field of the meeting screen has the keyboard.
 enum MeetingField: Hashable {
-    case note, find, title, link
+    case note, find, title, link, tag
 }
 
 /// "▶ 12:31": plays the meeting from there.

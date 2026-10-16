@@ -210,6 +210,41 @@ final class AppState {
         refreshNews()
     }
 
+    // MARK: - Tags
+
+    /// Puts the tag on the meeting, creating it when new.
+    func addTag(_ name: String, meetingId: Int64) {
+        guard TagName.normalize(name) != nil else { return }
+        perform("pôr a tag") { try db.addTag(name, meetingId: meetingId) }
+    }
+
+    func removeTag(_ tagId: Int64, meetingId: Int64) {
+        perform("tirar a tag") { try db.removeTag(tagId, meetingId: meetingId) }
+    }
+
+    /// Creates or changes a tag of the catalog. Nil when it worked, or why
+    /// not, to show next to the form.
+    func saveTag(_ tag: Tag) -> String? {
+        do {
+            if tag.id == nil {
+                try db.createTag(tag.name, description: tag.description, rules: tag.rules)
+            } else {
+                try db.updateTag(tag)
+            }
+            dataVersion += 1
+            return nil
+        } catch let error as TagError {
+            return error.description.prefix(1).uppercased() + error.description.dropFirst() + "."
+        } catch {
+            report(error, while: "salvar a tag")
+            return "Não deu para salvar a tag."
+        }
+    }
+
+    func deleteTag(_ id: Int64) {
+        perform("apagar a tag") { try db.deleteTag(id) }
+    }
+
     // MARK: - Summaries and news
 
     var hasNews: Bool {

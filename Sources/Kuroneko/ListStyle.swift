@@ -30,6 +30,7 @@ struct Tint {
     static let blue = Tint(background: Color(light: 0xEEF3FD, dark: 0x1D3252), foreground: Color(light: 0x0A4FB0, dark: 0x9CC3FA))
     static let green = Tint(background: Color(light: 0xE9F5EC, dark: 0x1C3A25), foreground: Color(light: 0x1A6B32, dark: 0x8FD9A4))
     static let yellow = Tint(background: Color(light: 0xFFF4D1, dark: 0x3B3214), foreground: Color(light: 0x6B5300, dark: 0xEBD27E))
+    static let gray = Tint(background: Color(light: 0xEFEFF2, dark: 0x38383C), foreground: Color(light: 0x45454A, dark: 0xD1D1D6))
     static let orange = Tint(background: Color(light: 0xFDEBDD, dark: 0x3D2716), foreground: Color(light: 0x8A3B00, dark: 0xF7B98A))
     static let pink = Tint(
         background: .clear,

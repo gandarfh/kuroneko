@@ -37,7 +37,7 @@ struct VoiceNaming {
     }
 }
 
-/// Title, when, who and links of a meeting.
+/// Title, when, who, tags and links of a meeting.
 struct MeetingHeaderView: View {
     let state: AppState
     let data: MeetingScreenData
@@ -49,6 +49,8 @@ struct MeetingHeaderView: View {
     @State private var addingLink = false
     @State private var linkDraft = ""
     @State private var linkInvalid = false
+    @State private var addingTag = false
+    @State private var tagDraft = ""
 
     private var meeting: Meeting { data.meeting }
     private var meetingId: Int64 { meeting.id ?? 0 }
@@ -66,6 +68,7 @@ struct MeetingHeaderView: View {
                 }
                 .padding(.top, 2)
             }
+            tags
             links
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -73,6 +76,7 @@ struct MeetingHeaderView: View {
             // Clicking elsewhere keeps the new title, like a rename in the Finder.
             if old == .title, new != .title, editingTitle { commitTitle() }
             if old == .link, new != .link, linkDraft.isEmpty { addingLink = false }
+            if old == .tag, new != .tag, tagDraft.isEmpty { addingTag = false }
         }
     }
 
@@ -141,11 +145,6 @@ struct MeetingHeaderView: View {
             Text(Self.dateLine(meeting))
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            if !data.tags.isEmpty {
-                Text(data.tags.map { "#\($0.tag.name)" }.joined(separator: " "))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -222,6 +221,99 @@ struct MeetingHeaderView: View {
                 .modifier(MeetingChip())
                 .help("Seu microfone")
         }
+    }
+
+    // MARK: - Tags
+
+    @ViewBuilder
+    private var tags: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(data.tags, id: \.tag.id) { applied in
+                tagChip(applied)
+            }
+            if addingTag {
+                TextField("project=nome", text: $tagDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout)
+                    .frame(width: 180)
+                    .focused(focus, equals: .tag)
+                    .onAppear { focus.wrappedValue = .tag }
+                    .onSubmit { addTag(tagDraft) }
+                    .onExitCommand(perform: cancelTag)
+                    .accessibilityLabel("Nova tag")
+            } else {
+                Button("+ Tag") {
+                    addingTag = true
+                }
+                .buttonStyle(MeetingChipStyle(dashed: true, rounded: true))
+                .help("Pôr uma tag nesta reunião, como project=pix")
+            }
+        }
+        if addingTag, !tagSuggestions.isEmpty {
+            FlowLayout(spacing: 6) {
+                ForEach(tagSuggestions, id: \.self) { name in
+                    Button(name) { addTag(name) }
+                        .buttonStyle(MeetingChipStyle(rounded: true))
+                }
+            }
+        }
+    }
+
+    private func tagChip(_ applied: AppliedTag) -> some View {
+        HStack(spacing: 5) {
+            if applied.source != TagSource.manual {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(applied.tag.name)
+                .lineLimit(1)
+            Button {
+                removeTag(applied)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Tirar a tag")
+            .accessibilityLabel("Tirar a tag \(applied.tag.name)")
+        }
+        .modifier(MeetingChip(rounded: true))
+        .help(TagText.source(applied))
+        .contextMenu {
+            Button("Tirar a tag") { removeTag(applied) }
+        }
+    }
+
+    /// Tags of the catalog not on the meeting, matching what is typed.
+    private var tagSuggestions: [String] {
+        let typed = tagDraft.trimmingCharacters(in: .whitespaces).lowercased()
+        let current = Set(data.tags.map(\.tag.name))
+        return data.catalog
+            .map(\.name)
+            .filter { !current.contains($0) && (typed.isEmpty || $0.contains(typed)) }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private func addTag(_ name: String) {
+        guard TagName.normalize(name) != nil else {
+            cancelTag()
+            return
+        }
+        state.addTag(name, meetingId: meetingId)
+        cancelTag()
+    }
+
+    private func removeTag(_ applied: AppliedTag) {
+        if let id = applied.tag.id { state.removeTag(id, meetingId: meetingId) }
+    }
+
+    private func cancelTag() {
+        tagDraft = ""
+        addingTag = false
+        if focus.wrappedValue == .tag { focus.wrappedValue = nil }
     }
 
     // MARK: - Links

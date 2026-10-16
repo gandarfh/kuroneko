@@ -8,7 +8,12 @@ public struct MeetingStorage: Equatable, Sendable {
         self.root = root
     }
 
+    /// `KURONEKO_DATA_DIR` points the app and the `kuroneko` command at
+    /// another folder, to try a build without touching the real meetings.
     public static func standard() -> MeetingStorage {
+        if let path = ProcessInfo.processInfo.environment["KURONEKO_DATA_DIR"], !path.isEmpty {
+            return MeetingStorage(root: URL(fileURLWithPath: path, isDirectory: true))
+        }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return MeetingStorage(root: support.appendingPathComponent("Kuroneko", isDirectory: true))
     }

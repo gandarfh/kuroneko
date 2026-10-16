@@ -2,14 +2,16 @@ import KuronekoCore
 import os
 import SwiftUI
 
-/// The meetings window: meetings as cards by day, or every open pendência,
-/// with the search of each in the toolbar.
+/// The meetings window: meetings as cards (filtered by tags, by day or by a
+/// tag key, in the order chosen), every open pendência, or the tags, with the
+/// search of each in the toolbar.
 struct MeetingsView: View {
     let state: AppState
 
     enum Tab: Hashable {
         case meetings
         case tasks
+        case tags
     }
 
     enum Route: Hashable {
@@ -25,6 +27,11 @@ struct MeetingsView: View {
     @State private var hits: [SearchHit] = []
     @State private var showSilent = false
     @State private var edit: CardEdit?
+    /// Only meetings with every one of these tags.
+    @State private var tagFilter: Set<String> = []
+    /// A tag key to group by; empty groups by day.
+    @AppStorage("meetingsGroupingKey") private var groupingKey = ""
+    @AppStorage("meetingsOrder") private var orderName = MeetingOrder.newest.rawValue
     private let navigator = Navigator.shared
     private let logger = Logger(subsystem: "com.gandarfh.kuroneko", category: "MeetingsView")
 
@@ -36,6 +43,11 @@ struct MeetingsView: View {
                     meetingsList
                 case .tasks:
                     TasksView(state: state, open: data.openTasks, done: data.doneTasks, query: query) { path.append($0) }
+                case .tags:
+                    TagsView(state: state, tags: data.tags, counts: data.tagCounts, people: data.persons.values.sorted(), query: query) { name in
+                        tagFilter = [name]
+                        tab = .meetings
+                    }
                 }
             }
             .navigationTitle("Reuniões")
@@ -44,6 +56,7 @@ struct MeetingsView: View {
                     Picker("Ver", selection: $tab) {
                         Text("Reuniões").tag(Tab.meetings)
                         Text(data.openTasks.isEmpty ? "Pendências" : "Pendências · \(data.openTasks.count)").tag(Tab.tasks)
+                        Text("Tags").tag(Tab.tags)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -53,7 +66,7 @@ struct MeetingsView: View {
             .searchable(
                 text: $query,
                 placement: .toolbar,
-                prompt: Text(tab == .meetings ? "Buscar em falas e notas" : "Buscar pendências")
+                prompt: Text(searchPrompt)
             )
             .navigationDestination(for: Route.self) { route in
                 switch route {
@@ -68,8 +81,22 @@ struct MeetingsView: View {
         .onChange(of: query) { search() }
         .onChange(of: tab) { search() }
         .onChange(of: showSilent) { regroup() }
+        .onChange(of: tagFilter) {
+            regroup()
+            search()
+        }
+        .onChange(of: groupingKey) { regroup() }
+        .onChange(of: orderName) { regroup() }
         .onAppear { follow(navigator.take()) }
         .onChange(of: navigator.request) { follow(navigator.take()) }
+    }
+
+    private var searchPrompt: String {
+        switch tab {
+        case .meetings: "Buscar em falas e notas"
+        case .tasks: "Buscar pendências"
+        case .tags: "Buscar tags"
+        }
     }
 
     // MARK: - Reuniões
@@ -77,6 +104,15 @@ struct MeetingsView: View {
     private var meetingsList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
+                if !data.items.isEmpty {
+                    ListControls(
+                        tags: data.tags,
+                        filter: $tagFilter,
+                        groupingKey: $groupingKey,
+                        orderName: $orderName,
+                        showsGrouping: query.isEmpty
+                    )
+                }
                 if query.isEmpty {
                     if let active = state.activeMeeting, let id = active.id {
                         RecordingBanner(meeting: active, transcribedUntilMs: data.transcribedUntilMs) { open(id) }
@@ -90,8 +126,11 @@ struct MeetingsView: View {
                                     showsDay: !group.isSingleDay,
                                     isSilent: data.silent.contains(item.id),
                                     state: state,
-                                    edit: $edit
-                                ) { open(item.id) }
+                                    catalog: data.tags,
+                                    edit: $edit,
+                                    open: { open(item.id) },
+                                    showTag: { tagFilter = [$0] }
+                                )
                             }
                         } header: {
                             Text(group.title)
@@ -119,6 +158,12 @@ struct MeetingsView: View {
         .overlay {
             if !query.isEmpty, hits.isEmpty {
                 ContentUnavailableView.search(text: query)
+            } else if query.isEmpty, !tagFilter.isEmpty, groups.isEmpty {
+                ContentUnavailableView(
+                    "Nenhuma reunião com essas tags",
+                    systemImage: "tag",
+                    description: Text("Tire uma tag do filtro para ver mais reuniões.")
+                )
             } else if query.isEmpty, data.items.isEmpty, state.activeMeeting == nil {
                 ContentUnavailableView(
                     "Nenhuma reunião ainda",
@@ -149,7 +194,8 @@ struct MeetingsView: View {
 
     /// Finished meetings with nothing in them, apart from the one recording.
     private var hiddenCount: Int {
-        data.items.count(where: { data.silent.contains($0.id) && $0.id != state.activeMeeting?.id })
+        MeetingListLayout.filter(data.items, tags: tagFilter)
+            .count(where: { data.silent.contains($0.id) && $0.id != state.activeMeeting?.id })
     }
 
     // MARK: - Navigation
@@ -184,6 +230,8 @@ struct MeetingsView: View {
             data.silent = try db.silentMeetingIds()
             data.persons = Dictionary(uniqueKeysWithValues: try db.persons().compactMap { person in person.id.map { ($0, person.name) } })
             data.openTasks = try db.openTasks()
+            data.tags = try db.tags()
+            data.tagCounts = try db.tagCounts()
             let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Calendar.current.startOfDay(for: Date())
             data.doneTasks = try db.doneTasks(since: weekStart)
             if let id = state.activeMeeting?.id {
@@ -202,7 +250,13 @@ struct MeetingsView: View {
         let visible = data.items.filter { item in
             item.id != activeId && (showSilent || !data.silent.contains(item.id))
         }
-        groups = DayGrouping.group(visible, date: \.startedAt)
+        // A key no tag has anymore groups by day.
+        let grouping: MeetingGrouping = data.tags.contains { $0.key == groupingKey } ? .tagKey(groupingKey) : .day
+        groups = MeetingListLayout.sections(
+            MeetingListLayout.filter(visible, tags: tagFilter),
+            grouping: grouping,
+            order: MeetingOrder(rawValue: orderName) ?? .newest
+        )
     }
 
     private func search() {
@@ -212,6 +266,10 @@ struct MeetingsView: View {
         }
         do {
             hits = try state.db.search(query)
+            if !tagFilter.isEmpty {
+                let tagged = Set(MeetingListLayout.filter(data.items, tags: tagFilter).map(\.id))
+                hits = hits.filter { tagged.contains($0.meetingId) }
+            }
         } catch {
             logger.error("Falha na busca: \(String(describing: error))")
             hits = []
@@ -236,8 +294,124 @@ private struct ListData {
     var persons: [Int64: String] = [:]
     var openTasks: [TaskItem] = []
     var doneTasks: [TaskItem] = []
+    var tags: [Tag] = []
+    var tagCounts: [Int64: Int] = [:]
     /// Of the meeting being recorded.
     var transcribedUntilMs: Int?
+}
+
+/// Above the cards: which tags to show, how to group and in which order.
+private struct ListControls: View {
+    let tags: [Tag]
+    @Binding var filter: Set<String>
+    @Binding var groupingKey: String
+    @Binding var orderName: String
+    /// Search results come as they are, without groups.
+    let showsGrouping: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                tagMenu
+                if showsGrouping {
+                    groupingMenu
+                    orderMenu
+                }
+                Spacer(minLength: 0)
+            }
+            .menuStyle(.borderlessButton)
+            .font(.callout)
+            if !filter.isEmpty {
+                WrappingLayout {
+                    ForEach(filter.sorted(), id: \.self) { name in
+                        FilterChip(title: "\(name)  ✕", selected: true) { filter.remove(name) }
+                            .help("Tirar do filtro")
+                    }
+                    if filter.count > 1 {
+                        Button("Limpar") { filter = [] }
+                            .buttonStyle(.link)
+                            .font(.callout)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var tagMenu: some View {
+        Menu {
+            if tags.isEmpty {
+                Text("Nenhuma tag ainda")
+            }
+            ForEach(sections, id: \.title) { section in
+                Section(section.title) {
+                    ForEach(section.tags, id: \.id) { tag in
+                        Toggle(tag.name, isOn: Binding(
+                            get: { filter.contains(tag.name) },
+                            set: { on in
+                                if on { filter.insert(tag.name) } else { filter.remove(tag.name) }
+                            }
+                        ))
+                    }
+                }
+            }
+        } label: {
+            Label(filter.isEmpty ? "Tags" : "Tags · \(filter.count)", systemImage: "tag")
+        }
+        .fixedSize()
+        .help("Ver só as reuniões com estas tags")
+    }
+
+    private var groupingMenu: some View {
+        Menu {
+            Picker("Agrupar", selection: $groupingKey) {
+                Text("Por dia").tag("")
+                ForEach(keys, id: \.self) { key in
+                    Text("Por \(key)").tag(key)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(keys.contains(groupingKey) ? "Por \(groupingKey)" : "Por dia", systemImage: "square.stack")
+        }
+        .fixedSize()
+        .help("Agrupar as reuniões")
+    }
+
+    private var orderMenu: some View {
+        Menu {
+            Picker("Ordenar", selection: $orderName) {
+                ForEach(MeetingOrder.allCases, id: \.self) { order in
+                    Text(Self.title(order)).tag(order.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(Self.title(MeetingOrder(rawValue: orderName) ?? .newest), systemImage: "arrow.up.arrow.down")
+        }
+        .fixedSize()
+        .help("Ordenar as reuniões")
+    }
+
+    private var keys: [String] {
+        Set(tags.compactMap(\.key)).sorted()
+    }
+
+    /// The tags under their key; plain ones last.
+    private var sections: [(title: String, tags: [Tag])] {
+        let byKey = Dictionary(grouping: tags, by: \.key)
+        var sections = keys.map { (title: $0, tags: byKey[$0] ?? []) }
+        if let plain = byKey[nil] { sections.append((title: "Outras", tags: plain)) }
+        return sections
+    }
+
+    private static func title(_ order: MeetingOrder) -> String {
+        switch order {
+        case .newest: "Mais recentes"
+        case .oldest: "Mais antigas"
+        case .longest: "Mais longas"
+        }
+    }
 }
 
 /// The call being recorded, above everything else.

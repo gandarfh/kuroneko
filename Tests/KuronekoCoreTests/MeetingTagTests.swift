@@ -338,3 +338,21 @@ import Testing
         #expect(throws: CLIError.self) { try CLICommand.parse(["tags", "x"]) }
     }
 }
+
+@Suite struct TagTextTests {
+    @Test func rulesInWords() {
+        #expect(TagText.rules([]) == nil)
+        #expect(TagText.rules([.titleContains(["daily", "standup"])]) == "título contém “daily” ou “standup”")
+        #expect(TagText.rules([.peopleInclude(["Ana", "Bia", "Rui"])]) == "com Ana, Bia e Rui")
+        #expect(TagText.rules([.peopleAre(["Tam"])]) == "só você e Tam")
+        #expect(TagText.rules([.titleContains(["1:1"]), .peopleAre(["Tam", "Bia"])]) == "título contém “1:1” · só você, Tam e Bia")
+        #expect(TagText.rules([TagCondition(field: "weekday", op: "is", values: ["seg"]), .titleContains([" "])]) == nil)
+    }
+
+    @Test func whoPutTheTagOn() {
+        let tag = Tag(name: "ritual=daily", rules: [.titleContains(["daily"])], createdAt: Date())
+        #expect(TagText.source(AppliedTag(tag: tag, source: TagSource.manual)) == "Você pôs esta tag")
+        #expect(TagText.source(AppliedTag(tag: tag, source: TagSource.rule)) == "Posta pela regra: título contém “daily”")
+        #expect(TagText.source(AppliedTag(tag: tag, source: TagSource.recurring)) == "Veio da reunião anterior nesta sala do Meet")
+    }
+}

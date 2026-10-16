@@ -38,6 +38,8 @@ struct MeetingScreenData {
     var decisions: [SummaryItem]
     var links: [MeetingLink]
     var tags: [AppliedTag]
+    /// Every tag there is, to suggest.
+    var catalog: [Tag]
     var hasSpeech: Bool
     /// During the call: up to where the transcript is ready.
     var transcribedUntilMs: Int
@@ -90,6 +92,7 @@ struct MeetingScreenData {
             decisions: summary.map { SummaryItems.parse($0.body).filter { $0.kind == "decision" } } ?? [],
             links: try db.links(meetingId: meetingId),
             tags: try db.meetingTags(meetingId: meetingId),
+            catalog: try db.tags(),
             hasSpeech: !segments.isEmpty,
             transcribedUntilMs: LiveProgress.transcribedUntilMs(segments)
         )

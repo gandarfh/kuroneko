@@ -217,7 +217,7 @@ private struct TaskRow: View {
 }
 
 /// "Todas · 6", "Minhas · 2", "Ana": which pendências to show.
-private struct FilterChip: View {
+struct FilterChip: View {
     let title: String
     let selected: Bool
     let action: () -> Void
