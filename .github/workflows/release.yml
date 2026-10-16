@@ -30,12 +30,40 @@ jobs:
             echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
           fi
 
-      # Signed ad hoc: the user's certificate never leaves their Mac. The
-      # installer re-signs with it there, which is what keeps macOS from
-      # asking for the mic, system audio and Automation permissions again
-      # after every update.
+      # One certificate of the project signs every release: macOS ties the
+      # mic, system audio, screen and Automation permissions to it, so they
+      # survive updates on every Mac. Without the secrets (a fork) the build
+      # is signed ad hoc, as before. See scripts/signing-cert.sh.
+      - name: Import the signing certificate
+        id: signing
+        env:
+          P12: ${{ secrets.KURONEKO_SIGNING_P12 }}
+          PASSWORD: ${{ secrets.KURONEKO_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$P12" ]; then
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/signing.p12"
+          echo "identity=Kuroneko Release Signing" >> "$GITHUB_OUTPUT"
+
       - name: Build the app bundle
-        run: make bundle SIGN_IDENTITY=- VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ github.run_number }}"
+        run: make bundle SIGN_IDENTITY="${{ steps.signing.outputs.identity }}" VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ github.run_number }}"
+
+      - name: Show the signature
+        run: |
+          codesign -dvv dist/Kuroneko.app 2>&1 | grep -E "^(Authority|Signature|Identifier)=" || true
+          codesign -d -r- dist/Kuroneko.app
 
       - name: Package the release archive
         run: |
