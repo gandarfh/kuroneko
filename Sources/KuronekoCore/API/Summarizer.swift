@@ -1,17 +1,24 @@
 import Foundation
 
-/// Writes a meeting's summary with Claude and saves it as the "summary"
-/// text: for `kuroneko summarize`, and for the app, by itself once a meeting
-/// is transcribed or when asked.
+/// Writes a meeting's summary with the agent chosen in Ajustes (Claude or
+/// Codex) and saves it as the "summary" text: for `kuroneko summarize`, and
+/// for the app, by itself once a meeting is transcribed or when asked.
 public struct Summarizer: Sendable {
-    /// The instructions and the meeting as text in, the Markdown out.
-    public typealias Runner = @Sendable (_ prompt: String, _ input: String) throws -> String
+    /// The agent, the instructions and the meeting as text in, the Markdown out.
+    public typealias Runner = @Sendable (_ agent: AgentCLI, _ prompt: String, _ input: String) throws -> String
 
     public let db: AppDatabase
+    /// Read on every summary, so a change in Ajustes counts right away.
+    private let agent: @Sendable () -> AgentCLI
     private let run: Runner
 
-    public init(db: AppDatabase, run: @escaping Runner = { try ClaudeCLI.run(prompt: $0, input: $1) }) {
+    public init(
+        db: AppDatabase,
+        run: @escaping Runner = { try $0.run(prompt: $1, input: $2) },
+        agent: @escaping @Sendable () -> AgentCLI = { SummarySettings.agent() }
+    ) {
         self.db = db
+        self.agent = agent
         self.run = run
     }
 
@@ -28,8 +35,9 @@ public struct Summarizer: Sendable {
     public func summarize(meetingId: Int64, markingNews: Bool = false) throws -> MeetingDocument {
         guard let meeting = try db.export(meetingId: meetingId) else { throw SummaryError.noMeeting(meetingId) }
         guard meeting.timeline.contains(where: { $0.type == "speech" }) else { throw SummaryError.noTranscript(meetingId) }
-        let body = try run(SummaryPrompt.instructions, TranscriptText.render(meeting, includeDocuments: false))
-        let document = try db.setDocument(meetingId: meetingId, kind: "summary", body: body, source: "claude")
+        let agent = agent()
+        let body = try run(agent, SummaryPrompt.instructions, TranscriptText.render(meeting, includeDocuments: false))
+        let document = try db.setDocument(meetingId: meetingId, kind: "summary", body: body, source: agent.command)
         if markingNews {
             try db.markNews(meetingId: meetingId)
         }

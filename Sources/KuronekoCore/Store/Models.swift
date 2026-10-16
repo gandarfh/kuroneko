@@ -263,7 +263,7 @@ public struct MeetingDocument: Codable, Identifiable, Equatable, Sendable {
     public var meetingId: Int64
     public var kind: String
     public var body: String
-    /// What wrote it ("claude", "manual").
+    /// What wrote it ("claude", "codex", "manual").
     public var source: String?
     public var updatedAt: Date
 

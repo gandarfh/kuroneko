@@ -49,7 +49,7 @@ struct MeetingOverviewView: View {
             Button("Gerar de novo") { state.summarize(meetingId) }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("O resumo que você editou será substituído por um novo do Claude.")
+            Text("O resumo que você editou será substituído por um novo do \(state.summaryAgent.title).")
         }
     }
 
@@ -75,7 +75,7 @@ struct MeetingOverviewView: View {
             if state.isSummarizing(meetingId) {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Gerando o resumo com o Claude…").foregroundStyle(.secondary)
+                    Text("Gerando o resumo com o \(state.summaryAgent.title)…").foregroundStyle(.secondary)
                 }
             } else if let failure = state.summaryFailures[meetingId] {
                 failed(failure)
@@ -84,7 +84,7 @@ struct MeetingOverviewView: View {
                     MeetingStyle.sectionTitle("Resumo")
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Button("Gerar resumo") { state.summarize(meetingId) }
-                        Text("O texto da reunião vai para o Claude; o áudio fica no Mac.")
+                        Text("O texto da reunião vai para o \(state.summaryAgent.title); o áudio fica no Mac.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -124,7 +124,7 @@ struct MeetingOverviewView: View {
                 if state.isSummarizing(meetingId) {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
-                        Text("Gerando o resumo de novo com o Claude…")
+                        Text("Gerando o resumo de novo com o \(state.summaryAgent.title)…")
                     }
                 } else if let failure = state.summaryFailures[meetingId] {
                     Text("Não deu para gerar de novo: \(failure)")
@@ -135,7 +135,7 @@ struct MeetingOverviewView: View {
                 } else {
                     Text(Self.origin(of: summary))
                     Button("Atualizar resumo") {
-                        if summary.source == "claude" {
+                        if Self.isGenerated(summary) {
                             state.summarize(meetingId)
                         } else {
                             confirmingRegenerate = true
@@ -152,12 +152,18 @@ struct MeetingOverviewView: View {
         }
     }
 
-    /// "Resumo gerado pelo Claude às 12:10".
+    /// "Resumo gerado pelo Codex às 12:10".
     static func origin(of summary: MeetingDocument) -> String {
         let when = Calendar.current.isDateInToday(summary.updatedAt)
             ? "às \(Format.time(summary.updatedAt))"
             : "em \(summary.updatedAt.formatted(.dateTime.day().month(.abbreviated))) às \(Format.time(summary.updatedAt))"
-        return summary.source == "claude" ? "Resumo gerado pelo Claude \(when)" : "Resumo editado \(when)"
+        guard isGenerated(summary), let source = summary.source else { return "Resumo editado \(when)" }
+        return "Resumo gerado pelo \(AgentCLI.title(of: source)) \(when)"
+    }
+
+    /// Written by an agent and not edited since.
+    static func isGenerated(_ summary: MeetingDocument) -> Bool {
+        AgentCLI.commands.contains(summary.source ?? "")
     }
 
     // MARK: - Pendências and decisões

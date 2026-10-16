@@ -37,7 +37,7 @@ public enum CLICommand: Equatable, Sendable {
           kuroneko name <id> <voz> <nome>           diz quem é uma voz (c1, 2 ou "Pessoa 2")
           kuroneko note add <id> --at <tempo> <texto>
           kuroneko note rm <id-da-nota>
-          kuroneko summarize <id>                   gera o resumo com o Claude e salva
+          kuroneko summarize <id>                   gera o resumo (Claude ou Codex, como nos Ajustes) e salva
           kuroneko doc set <id> <tipo>              salva um texto da reunião (stdin)
           kuroneko doc rm <id> <tipo>
           kuroneko link add <id> <url> [título]     guarda um link da reunião (PR, ticket, doc)

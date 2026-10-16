@@ -21,6 +21,11 @@ final class AppState {
     private(set) var extraVocabulary: String
     private(set) var hiddenFromScreenCapture: Bool
     private(set) var autoSummarize: Bool
+    /// Who writes the summaries (Claude or Codex) and with which model.
+    private(set) var summaryAgent = SummarySettings.agent()
+    /// What the agent offers, for the picker in Ajustes.
+    private(set) var summaryModels: [AgentModel] = []
+    private(set) var loadingSummaryModels = false
     private(set) var showTypingCat: Bool
     /// Bumped whenever stored data changes; views reload on it.
     private(set) var dataVersion = 0
@@ -283,6 +288,45 @@ final class AppState {
     func setAutoSummarize(_ enabled: Bool) {
         autoSummarize = enabled
         UserDefaults.standard.set(enabled, forKey: Self.autoSummarizeKey)
+    }
+
+    /// Each agent keeps its own model.
+    func setSummaryCommand(_ command: String) {
+        summaryAgent = AgentCLI(command: command, model: SummarySettings.model(for: command))
+        SummarySettings.save(summaryAgent)
+        summaryModels = []
+        loadSummaryModels()
+    }
+
+    /// Codex may take a few seconds to say which models the account has.
+    func loadSummaryModels() {
+        let command = summaryAgent.command
+        loadingSummaryModels = true
+        Task {
+            let models = await Task.detached { AgentCLI.models(for: command) }.value
+            guard summaryAgent.command == command else { return }
+            summaryModels = models
+            loadingSummaryModels = false
+        }
+    }
+
+    func setSummaryModel(_ model: String) {
+        summaryAgent.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        SummarySettings.save(summaryAgent)
+    }
+
+    /// Asks the agent for a one-word answer, to know it runs with that
+    /// model: nil when it worked, or why not.
+    func testSummaryAgent() async -> String? {
+        let agent = summaryAgent
+        return await Task.detached {
+            do {
+                _ = try agent.run(prompt: "Responda só com a palavra ok.", input: "", timeout: 120)
+                return nil
+            } catch {
+                return String(describing: error)
+            }
+        }.value
     }
 
     /// Right after a meeting is transcribed, when it has speech and no

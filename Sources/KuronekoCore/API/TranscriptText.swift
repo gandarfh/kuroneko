@@ -87,7 +87,7 @@ public enum ClockTime {
     }
 }
 
-/// What Claude is asked when summarizing; the transcript goes on stdin.
+/// What the agent is asked when summarizing; the transcript goes on stdin.
 public enum SummaryPrompt {
     public static let instructions = """
         Resuma a reunião cuja transcrição vem a seguir. Ela foi transcrita automaticamente: pode ter palavras erradas, e "Pessoa N" é uma voz ainda não identificada. Os horários [mm:ss] contam do início da gravação. Linhas "NOTA" são anotações pessoais do usuário, feitas durante a reunião naquele momento.
