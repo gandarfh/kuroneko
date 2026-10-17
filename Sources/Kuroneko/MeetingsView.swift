@@ -2,9 +2,9 @@ import KuronekoCore
 import os
 import SwiftUI
 
-/// The meetings window: meetings as cards (filtered by tags, by day or by a
-/// tag key, in the order chosen), every open pendência, or the tags, with the
-/// search of each in the toolbar.
+/// The meetings window: meetings as cards (filtered by people and tags,
+/// grouped by day, person or a tag key, in the order chosen), every
+/// pendência, or the tags, with the search of each in the toolbar.
 struct MeetingsView: View {
     let state: AppState
 
@@ -12,6 +12,16 @@ struct MeetingsView: View {
         case meetings
         case tasks
         case tags
+        case settings
+
+        var title: String {
+            switch self {
+            case .meetings: "Reuniões"
+            case .tasks: "Pendências"
+            case .tags: "Tags"
+            case .settings: "Ajustes"
+            }
+        }
     }
 
     enum Route: Hashable {
@@ -27,42 +37,86 @@ struct MeetingsView: View {
     @State private var hits: [SearchHit] = []
     @State private var showSilent = false
     @State private var edit: CardEdit?
-    /// Only meetings with every one of these tags.
-    @State private var tagFilter: Set<String> = []
-    /// A tag key to group by; empty groups by day.
-    @AppStorage("meetingsGroupingKey") private var groupingKey = ""
+    // Every filter stays as the user left it, also after reopening the app.
+    /// Only meetings with any of these people (`StoredNames`).
+    @AppStorage("meetingsPeople") private var storedPeople = ""
+    /// Only meetings with every one of these tags (`StoredNames`).
+    @AppStorage("meetingsTags") private var storedTags = ""
+    /// "day", "person" or a tag key.
+    @AppStorage("meetingsGrouping") private var groupingName = "day"
     @AppStorage("meetingsOrder") private var orderName = MeetingOrder.newest.rawValue
+    @AppStorage(HiddenStatuses.key) private var hiddenStatuses = ""
     private let navigator = Navigator.shared
     private let logger = Logger(subsystem: "com.gandarfh.kuroneko", category: "MeetingsView")
 
     var body: some View {
+        HStack(spacing: 0) {
+            SidebarRail(selection: tab, tasks: TaskListLayout.filter(data.tasks, hiding: HiddenStatuses.decode(hiddenStatuses)).count) { selected in
+                // Back to the list of the section, also from inside a meeting.
+                path = []
+                tab = selected
+            }
+            ListPalette.rule.frame(width: 1)
+            if tab == .settings {
+                // In a stack too, so the window's bar keeps its height and
+                // the icons on the left don't jump.
+                NavigationStack {
+                    SettingsView(state: state)
+                        .navigationTitle(tab.title)
+                }
+            } else {
+                sections
+            }
+        }
+        .containerBackground(Theme.background, for: .window)
+        .toolbarBackground(Theme.background, for: .windowToolbar)
+        .tint(Theme.accent)
+        .task(id: state.dataVersion) { reload() }
+        .onChange(of: query) { search() }
+        .onChange(of: tab) { search() }
+        .onChange(of: showSilent) { regroup() }
+        .onChange(of: storedPeople) {
+            regroup()
+            search()
+        }
+        .onChange(of: storedTags) {
+            regroup()
+            search()
+        }
+        .onChange(of: groupingName) { regroup() }
+        .onChange(of: orderName) { regroup() }
+        .onAppear {
+            DockPresence.windowOpened()
+            follow(navigator.take())
+        }
+        .onDisappear { DockPresence.windowClosed() }
+        .onChange(of: navigator.request) { follow(navigator.take()) }
+    }
+
+    private var sections: some View {
         NavigationStack(path: $path) {
             Group {
                 switch tab {
-                case .meetings:
+                case .meetings, .settings:
                     meetingsList
                 case .tasks:
-                    TasksView(state: state, open: data.openTasks, done: data.doneTasks, query: query) { path.append($0) }
+                    TasksView(
+                        state: state,
+                        tasks: data.tasks,
+                        proposals: data.proposals,
+                        statuses: data.statuses,
+                        catalog: data.tags,
+                        people: data.persons.values.sorted(),
+                        query: query
+                    ) { path.append($0) }
                 case .tags:
                     TagsView(state: state, tags: data.tags, counts: data.tagCounts, people: data.persons.values.sorted(), query: query) { name in
-                        tagFilter = [name]
+                        storedTags = name
                         tab = .meetings
                     }
                 }
             }
-            .navigationTitle("Reuniões")
-            .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Picker("Ver", selection: $tab) {
-                        Text("Reuniões").tag(Tab.meetings)
-                        Text(data.openTasks.isEmpty ? "Pendências" : "Pendências · \(data.openTasks.count)").tag(Tab.tasks)
-                        Text("Tags").tag(Tab.tags)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                }
-            }
+            .navigationTitle(tab.title)
             .searchable(
                 text: $query,
                 placement: .toolbar,
@@ -71,29 +125,15 @@ struct MeetingsView: View {
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .meeting(let id, let focusMs, let play):
-                    MeetingDetailView(state: state, meetingId: id, focusMs: focusMs, playOnOpen: play)
+                    MeetingDetailView(state: state, meetingId: id, focusMs: focusMs, playOnOpen: play) { path.append($0) }
                 }
             }
         }
-        // The tabs take the title's place; a meeting shows its own title.
-        .toolbar(removing: path.isEmpty ? .title : nil)
-        .task(id: state.dataVersion) { reload() }
-        .onChange(of: query) { search() }
-        .onChange(of: tab) { search() }
-        .onChange(of: showSilent) { regroup() }
-        .onChange(of: tagFilter) {
-            regroup()
-            search()
-        }
-        .onChange(of: groupingKey) { regroup() }
-        .onChange(of: orderName) { regroup() }
-        .onAppear { follow(navigator.take()) }
-        .onChange(of: navigator.request) { follow(navigator.take()) }
     }
 
     private var searchPrompt: String {
         switch tab {
-        case .meetings: "Buscar em falas e notas"
+        case .meetings, .settings: "Buscar em falas e notas"
         case .tasks: "Buscar pendências"
         case .tags: "Buscar tags"
         }
@@ -105,10 +145,11 @@ struct MeetingsView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 if !data.items.isEmpty {
-                    ListControls(
-                        tags: data.tags,
-                        filter: $tagFilter,
-                        groupingKey: $groupingKey,
+                    MeetingListControls(
+                        items: data.items,
+                        people: StoredNames.binding($storedPeople),
+                        tags: StoredNames.binding($storedTags),
+                        groupingName: $groupingName,
                         orderName: $orderName,
                         showsGrouping: query.isEmpty
                     )
@@ -119,7 +160,10 @@ struct MeetingsView: View {
                     }
                     ForEach(groups, id: \.title) { group in
                         Section {
-                            ForEach(group.items, id: \.id) { item in
+                            // A meeting can be in more than one section (two
+                            // people, two values of the key); each is its own card.
+                            ForEach(group.items.map { (key: "\(group.title)/\($0.id)", item: $0) }, id: \.key) { entry in
+                                let item = entry.item
                                 MeetingCard(
                                     item: item,
                                     meeting: data.meetings[item.id],
@@ -129,14 +173,12 @@ struct MeetingsView: View {
                                     catalog: data.tags,
                                     edit: $edit,
                                     open: { open(item.id) },
-                                    showTag: { tagFilter = [$0] }
+                                    showTag: { storedTags = $0 }
                                 )
                             }
                         } header: {
-                            Text(group.title)
-                                .font(.callout.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 6)
+                            SectionLabel(text: group.title)
+                                .padding(.top, 10)
                                 .padding(.horizontal, 4)
                         }
                     }
@@ -158,11 +200,11 @@ struct MeetingsView: View {
         .overlay {
             if !query.isEmpty, hits.isEmpty {
                 ContentUnavailableView.search(text: query)
-            } else if query.isEmpty, !tagFilter.isEmpty, groups.isEmpty {
+            } else if query.isEmpty, groups.isEmpty, filtered(data.items).count < data.items.count {
                 ContentUnavailableView(
-                    "Nenhuma reunião com essas tags",
-                    systemImage: "tag",
-                    description: Text("Tire uma tag do filtro para ver mais reuniões.")
+                    "Nenhuma reunião com esses filtros",
+                    systemImage: "line.3.horizontal.decrease",
+                    description: Text("Tire um filtro para ver mais reuniões.")
                 )
             } else if query.isEmpty, data.items.isEmpty, state.activeMeeting == nil {
                 ContentUnavailableView(
@@ -178,13 +220,13 @@ struct MeetingsView: View {
         HStack(spacing: 4) {
             if showSilent {
                 Button("Esconder as gravações sem fala") { showSilent = false }
-                    .buttonStyle(.link)
+                    .buttonStyle(.accentLink)
             } else {
                 Text(CountText.of(hiddenCount, "gravação sem fala escondida", "gravações sem fala escondidas"))
                     .foregroundStyle(.secondary)
                 Text("·").foregroundStyle(.secondary)
                 Button("Mostrar") { showSilent = true }
-                    .buttonStyle(.link)
+                    .buttonStyle(.accentLink)
             }
         }
         .font(.callout)
@@ -194,8 +236,15 @@ struct MeetingsView: View {
 
     /// Finished meetings with nothing in them, apart from the one recording.
     private var hiddenCount: Int {
-        MeetingListLayout.filter(data.items, tags: tagFilter)
-            .count(where: { data.silent.contains($0.id) && $0.id != state.activeMeeting?.id })
+        filtered(data.items).count(where: { data.silent.contains($0.id) && $0.id != state.activeMeeting?.id })
+    }
+
+    /// Only the meetings of the people and tags in Filtrar; one no meeting
+    /// has anymore is no filter anymore.
+    private func filtered(_ items: [MeetingListItem]) -> [MeetingListItem] {
+        let people = StoredNames.decode(storedPeople).intersection(MeetingListLayout.people(in: data.items))
+        let tags = StoredNames.decode(storedTags).intersection(data.items.flatMap(\.tags))
+        return MeetingListLayout.filter(MeetingListLayout.filter(items, people: people), tags: tags)
     }
 
     // MARK: - Navigation
@@ -214,6 +263,9 @@ struct MeetingsView: View {
         case .tasks:
             path = []
             tab = .tasks
+        case .settings:
+            path = []
+            tab = .settings
         case nil:
             break
         }
@@ -229,11 +281,11 @@ struct MeetingsView: View {
             data.meetings = Dictionary(uniqueKeysWithValues: try db.meetings().compactMap { meeting in meeting.id.map { ($0, meeting) } })
             data.silent = try db.silentMeetingIds()
             data.persons = Dictionary(uniqueKeysWithValues: try db.persons().compactMap { person in person.id.map { ($0, person.name) } })
-            data.openTasks = try db.openTasks()
+            data.tasks = try db.tasks()
             data.tags = try db.tags()
             data.tagCounts = try db.tagCounts()
-            let weekStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Calendar.current.startOfDay(for: Date())
-            data.doneTasks = try db.doneTasks(since: weekStart)
+            data.proposals = try db.mergeProposals()
+            data.statuses = try db.taskStatuses()
             if let id = state.activeMeeting?.id {
                 data.transcribedUntilMs = try db.transcribedUntilMs(meetingId: id)
             }
@@ -250,13 +302,13 @@ struct MeetingsView: View {
         let visible = data.items.filter { item in
             item.id != activeId && (showSilent || !data.silent.contains(item.id))
         }
-        // A key no tag has anymore groups by day.
-        let grouping: MeetingGrouping = data.tags.contains { $0.key == groupingKey } ? .tagKey(groupingKey) : .day
-        groups = MeetingListLayout.sections(
-            MeetingListLayout.filter(visible, tags: tagFilter),
-            grouping: grouping,
-            order: MeetingOrder(rawValue: orderName) ?? .newest
-        )
+        let grouping: MeetingGrouping = switch groupingName {
+        case "person": .person
+        case let key where MeetingListLayout.tagKeys(in: data.items).contains(key): .tagKey(key)
+        // A key no meeting has anymore groups by day.
+        default: .day
+        }
+        groups = MeetingListLayout.sections(filtered(visible), grouping: grouping, order: MeetingOrder(rawValue: orderName) ?? .newest)
     }
 
     private func search() {
@@ -265,11 +317,8 @@ struct MeetingsView: View {
             return
         }
         do {
-            hits = try state.db.search(query)
-            if !tagFilter.isEmpty {
-                let tagged = Set(MeetingListLayout.filter(data.items, tags: tagFilter).map(\.id))
-                hits = hits.filter { tagged.contains($0.meetingId) }
-            }
+            let shown = Set(filtered(data.items).map(\.id))
+            hits = try state.db.search(query).filter { shown.contains($0.meetingId) }
         } catch {
             logger.error("Falha na busca: \(String(describing: error))")
             hits = []
@@ -286,123 +335,175 @@ struct MeetingsView: View {
     }
 }
 
+/// The column of icons on the left of the window: the sections, with the
+/// settings at the bottom.
+private struct SidebarRail: View {
+    let selection: MeetingsView.Tab
+    /// Pendências the user's status filter shows.
+    let tasks: Int
+    let select: (MeetingsView.Tab) -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            item(.meetings, icon: "rectangle.stack")
+            item(.tasks, icon: "checklist", badge: tasks)
+            item(.tags, icon: "tag")
+            Spacer()
+            item(.settings, icon: "gearshape")
+        }
+        .padding(.vertical, 12)
+        .frame(width: 56)
+        .frame(maxHeight: .infinity)
+        .background(Color(hex: 0x0C0C0D))
+    }
+
+    private func item(_ tab: MeetingsView.Tab, icon: String, badge: Int = 0) -> some View {
+        let selected = selection == tab
+        return Button { select(tab) } label: {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? Color.white : Color.secondary)
+                .frame(width: 38, height: 38)
+                .background(selected ? Theme.cardHover : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 {
+                        Text("\(badge)")
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                            .foregroundStyle(Color.black.opacity(0.85))
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 15, minHeight: 15)
+                            .background(Theme.accent, in: Capsule())
+                            .offset(x: 3, y: -2)
+                    }
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        // The fill already shows the section; the system ring is blue.
+        .focusEffectDisabled()
+        .help(tab.title)
+        .accessibilityLabel(badge > 0 ? "\(tab.title), \(badge)" : tab.title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 /// What the window shows, read again whenever stored data changes.
 private struct ListData {
     var items: [MeetingListItem] = []
     var meetings: [Int64: Meeting] = [:]
     var silent: Set<Int64> = []
     var persons: [Int64: String] = [:]
-    var openTasks: [TaskItem] = []
-    var doneTasks: [TaskItem] = []
+    var tasks: [TaskItem] = []
+    /// Pendências that look repeated, for the user to join or not.
+    var proposals: [TaskMergeProposal] = []
+    var statuses: [TaskStatus] = []
     var tags: [Tag] = []
     var tagCounts: [Int64: Int] = [:]
     /// Of the meeting being recorded.
     var transcribedUntilMs: Int?
 }
 
-/// Above the cards: which tags to show, how to group and in which order.
-private struct ListControls: View {
-    let tags: [Tag]
-    @Binding var filter: Set<String>
-    @Binding var groupingKey: String
+/// The bar above the meetings, as in the Pendências: Filtrar (people and
+/// tags), Agrupar and Ordenar on the right, the filters on below.
+private struct MeetingListControls: View {
+    let items: [MeetingListItem]
+    @Binding var people: Set<String>
+    @Binding var tags: Set<String>
+    @Binding var groupingName: String
     @Binding var orderName: String
     /// Search results come as they are, without groups.
     let showsGrouping: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 16) {
-                tagMenu
+        // A person or a tag no meeting has anymore is no filter anymore.
+        let everyone = MeetingListLayout.people(in: items)
+        let tagNames = Set(items.flatMap(\.tags)).sorted()
+        let people = people.intersection(everyone)
+        let tags = tags.intersection(tagNames)
+        let filters = people.count + tags.count
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 8)
+                Menu {
+                    if !everyone.isEmpty {
+                        Section("Pessoas") {
+                            ForEach(everyone, id: \.self) { name in
+                                Toggle(name, isOn: $people.contains(name))
+                            }
+                        }
+                    }
+                    if !tagNames.isEmpty {
+                        Section("Tags") {
+                            ForEach(tagNames, id: \.self) { name in
+                                Toggle(name, isOn: $tags.contains(name))
+                            }
+                        }
+                    }
+                    if everyone.isEmpty, tagNames.isEmpty {
+                        Text("Pessoas com nome e tags aparecem aqui")
+                    }
+                    if filters > 0 {
+                        Divider()
+                        Button("Limpar filtros", action: clear)
+                    }
+                } label: {
+                    ToolbarMenuLabel(title: "Filtrar", icon: "line.3.horizontal.decrease", badge: filters)
+                }
+                .help("Ver só as reuniões de algumas pessoas ou tags")
                 if showsGrouping {
-                    groupingMenu
-                    orderMenu
+                    Menu {
+                        Section("Agrupar por") {
+                            MenuChoice(title: "Dia", icon: "calendar", value: "day", selection: $groupingName)
+                            MenuChoice(title: "Pessoa", icon: "person", value: "person", selection: $groupingName)
+                        }
+                        Section("Tags") {
+                            let keys = MeetingListLayout.tagKeys(in: items)
+                            if keys.isEmpty {
+                                Text("Tags chave=valor, como project=pix, aparecem aqui")
+                            }
+                            ForEach(keys, id: \.self) { key in
+                                MenuChoice(title: key, icon: "tag", value: key, selection: $groupingName)
+                            }
+                        }
+                    } label: {
+                        ToolbarMenuLabel(title: groupingTitle, icon: "square.stack")
+                    }
+                    .help("Agrupar as reuniões")
+                    Menu {
+                        Section("Ordenar") {
+                            ForEach(MeetingOrder.allCases, id: \.self) { order in
+                                MenuChoice(title: Self.title(order), value: order.rawValue, selection: $orderName)
+                            }
+                        }
+                    } label: {
+                        ToolbarMenuLabel(title: Self.title(MeetingOrder(rawValue: orderName) ?? .newest), icon: "arrow.up.arrow.down")
+                    }
+                    .help("Ordenar as reuniões")
                 }
-                Spacer(minLength: 0)
             }
-            .menuStyle(.borderlessButton)
-            .font(.callout)
-            if !filter.isEmpty {
-                WrappingLayout {
-                    ForEach(filter.sorted(), id: \.self) { name in
-                        FilterChip(title: "\(name)  ✕", selected: true) { filter.remove(name) }
-                            .help("Tirar do filtro")
-                    }
-                    if filter.count > 1 {
-                        Button("Limpar") { filter = [] }
-                            .buttonStyle(.link)
-                            .font(.callout)
-                    }
-                }
+            .listToolbarMenus()
+            if filters > 0 {
+                ActiveFilters(filters: people.sorted().map { name in
+                    .init(id: "person:\(name)", title: name, help: "Tirar do filtro") { self.people.remove(name) }
+                } + tags.sorted().map { name in
+                    .init(id: "tag:\(name)", title: name, help: "Tirar do filtro") { self.tags.remove(name) }
+                }, clear: clear)
             }
         }
         .padding(.horizontal, 4)
     }
 
-    private var tagMenu: some View {
-        Menu {
-            if tags.isEmpty {
-                Text("Nenhuma tag ainda")
-            }
-            ForEach(sections, id: \.title) { section in
-                Section(section.title) {
-                    ForEach(section.tags, id: \.id) { tag in
-                        Toggle(tag.name, isOn: Binding(
-                            get: { filter.contains(tag.name) },
-                            set: { on in
-                                if on { filter.insert(tag.name) } else { filter.remove(tag.name) }
-                            }
-                        ))
-                    }
-                }
-            }
-        } label: {
-            Label(filter.isEmpty ? "Tags" : "Tags · \(filter.count)", systemImage: "tag")
+    private var groupingTitle: String {
+        switch groupingName {
+        case "person": "Pessoa"
+        case let key where MeetingListLayout.tagKeys(in: items).contains(key): key
+        default: "Dia"
         }
-        .fixedSize()
-        .help("Ver só as reuniões com estas tags")
     }
 
-    private var groupingMenu: some View {
-        Menu {
-            Picker("Agrupar", selection: $groupingKey) {
-                Text("Por dia").tag("")
-                ForEach(keys, id: \.self) { key in
-                    Text("Por \(key)").tag(key)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Label(keys.contains(groupingKey) ? "Por \(groupingKey)" : "Por dia", systemImage: "square.stack")
-        }
-        .fixedSize()
-        .help("Agrupar as reuniões")
-    }
-
-    private var orderMenu: some View {
-        Menu {
-            Picker("Ordenar", selection: $orderName) {
-                ForEach(MeetingOrder.allCases, id: \.self) { order in
-                    Text(Self.title(order)).tag(order.rawValue)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Label(Self.title(MeetingOrder(rawValue: orderName) ?? .newest), systemImage: "arrow.up.arrow.down")
-        }
-        .fixedSize()
-        .help("Ordenar as reuniões")
-    }
-
-    private var keys: [String] {
-        Set(tags.compactMap(\.key)).sorted()
-    }
-
-    /// The tags under their key; plain ones last.
-    private var sections: [(title: String, tags: [Tag])] {
-        let byKey = Dictionary(grouping: tags, by: \.key)
-        var sections = keys.map { (title: $0, tags: byKey[$0] ?? []) }
-        if let plain = byKey[nil] { sections.append((title: "Outras", tags: plain)) }
-        return sections
+    private func clear() {
+        people = []
+        tags = []
     }
 
     private static func title(_ order: MeetingOrder) -> String {
@@ -423,43 +524,42 @@ private struct RecordingBanner: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: 12) {
-                Circle()
-                    .fill(ListPalette.recordingDot)
-                    .frame(width: 10, height: 10)
+                IconTile(systemName: "record.circle.fill", tint: Theme.recording, size: 38)
                 VStack(alignment: .leading, spacing: 2) {
+                    SectionLabel(text: "Gravando", tint: Theme.recording)
                     Text(meeting.title)
                         .fontWeight(.semibold)
                         .fixedSize(horizontal: false, vertical: true)
-                    TimelineView(.periodic(from: .now, by: 30)) { context in
-                        Text(status(at: context.date))
-                            .font(.callout)
-                            .foregroundStyle(ListPalette.recording.foreground)
-                    }
+                    Text(status)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Text("Abrir")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(ListPalette.recordingAccent)
+                TimelineView(.periodic(from: meeting.startedAt, by: 1)) { context in
+                    Text(Format.clock(ms: Int(context.date.timeIntervalSince(meeting.startedAt) * 1000)))
+                        .font(.system(size: 24, weight: .semibold).monospacedDigit())
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ListPalette.recording.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(ListPalette.recording.border ?? .clear)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CardButtonStyle())
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                .strokeBorder(Theme.recording.opacity(0.35))
+        }
         .accessibilityLabel("Gravando \(meeting.title). Abrir")
     }
 
-    /// "Gravando desde 14:00 · 12 min · texto até 10:10".
-    private func status(at now: Date) -> String {
-        let elapsedMs = Int(now.timeIntervalSince(meeting.startedAt) * 1000)
+    /// "Desde 14:00 · texto até 10:10".
+    private var status: String {
         let text = transcribedUntilMs.map { "texto até \(Format.clock(ms: $0))" } ?? "sem texto ainda"
-        return "Gravando desde \(DayText.time(meeting.startedAt)) · \(DurationText.short(ms: elapsedMs)) · \(text)"
+        return "Desde \(DayText.time(meeting.startedAt)) · \(text)"
     }
 }
 
@@ -494,7 +594,7 @@ private struct SearchHitCard: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
             .card()
         }
         .buttonStyle(.plain)

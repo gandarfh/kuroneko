@@ -14,14 +14,21 @@ struct KuronekoApp: App {
         } label: {
             menuIcon
         }
+        .menuBarExtraStyle(.window)
 
-        Window("Reuniões", id: WindowID.meetings) {
+        // Meetings, pendências, tags and settings in one window, which also
+        // puts the app in the Dock while it is open (`DockPresence`).
+        Window("Kuroneko", id: WindowID.meetings) {
             MeetingsView(state: state)
         }
-        .defaultSize(width: 520, height: 820)
-
-        Settings {
-            SettingsView(state: state)
+        .defaultSize(width: 580, height: 860)
+        // The app's main window, which can go full screen: tiling window
+        // managers (AeroSpace) leave floating, as a dialog, one that can't.
+        .windowManagerRole(.principal)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                SettingsCommand()
+            }
         }
     }
 
@@ -30,12 +37,26 @@ struct KuronekoApp: App {
         if state.processing.current != nil { return Image(systemName: "waveform") }
         // A dot beside the cat: a summary is ready (see "Novidades").
         if state.hasNews { return Image(nsImage: MenuBarIcon.catWithNews) }
-        return Image(systemName: "cat")
+        return Image(nsImage: MenuBarIcon.cat)
     }
 }
 
 enum WindowID {
     static let meetings = "meetings"
+}
+
+/// ⌘, opens the Ajustes of the window.
+private struct SettingsCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Ajustes…") {
+            Navigator.shared.go(to: .settings)
+            DockPresence.windowOpened()
+            openWindow(id: WindowID.meetings)
+        }
+        .keyboardShortcut(",")
+    }
 }
 
 extension KeyboardShortcuts.Name {
@@ -49,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Menu-bar-only mode even when launched as a bare binary (swift run),
         // where the Info.plist LSUIElement key is not present.
         NSApp.setActivationPolicy(.accessory)
+        Theme.apply()
         CaptureShield.start { AppState.shared.hiddenFromScreenCapture }
         KeyboardShortcuts.onKeyUp(for: .quickNote) {
             QuickNoteController.shared.toggle(state: AppState.shared)

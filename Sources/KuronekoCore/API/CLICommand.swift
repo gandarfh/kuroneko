@@ -19,7 +19,7 @@ public enum CLICommand: Equatable, Sendable {
     case linkAdd(meetingId: Int64, url: String, title: String?)
     case linkRemove(linkId: Int64)
     case tasks
-    case taskDone(TaskRef, done: Bool)
+    case taskStatus(TaskRef, status: String)
     case tags
     case tagAdd(meetingId: Int64, tag: String)
     case tagRemove(meetingId: Int64, tag: String)
@@ -42,8 +42,8 @@ public enum CLICommand: Equatable, Sendable {
           kuroneko doc rm <id> <tipo>
           kuroneko link add <id> <url> [título]     guarda um link da reunião (PR, ticket, doc)
           kuroneko link rm <id-do-link>
-          kuroneko tasks                            pendências abertas de todas as reuniões
-          kuroneko task done|undo <ref>             marca a pendência como feita (ou não)
+          kuroneko tasks                            pendências de todas as reuniões, com o status
+          kuroneko task status <ref> <status>       muda o status da pendência (Aberta, Fazendo, Feita…)
           kuroneko tags                             tags criadas, com regras e quantas reuniões têm
           kuroneko tag add <id> <tag>               põe a tag na reunião (project=pix; cria se não existe)
           kuroneko tag rm <id> <tag>                tira a tag da reunião (nada automático a põe de volta)
@@ -131,11 +131,10 @@ public enum CLICommand: Equatable, Sendable {
             try expectNoMore(args)
             return .tasks
         case "task":
-            guard args.count == 2, ["done", "undo"].contains(args[0]) else {
-                throw CLIError("uso: kuroneko task done|undo <ref>")
-            }
+            let usage = CLIError("uso: kuroneko task status <ref> <status>")
+            guard args.count > 2, args[0] == "status" else { throw usage }
             guard let ref = TaskRef(args[1]) else { throw CLIError("pendência inválida: \(args[1])") }
-            return .taskDone(ref, done: args[0] == "done")
+            return .taskStatus(ref, status: args[2...].joined(separator: " "))
         case "tags":
             try expectNoMore(args)
             return .tags

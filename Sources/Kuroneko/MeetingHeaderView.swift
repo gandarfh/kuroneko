@@ -357,9 +357,9 @@ struct MeetingHeaderView: View {
             Label(link.label, systemImage: "link")
                 .labelStyle(LinkChipLabelStyle())
                 .lineLimit(1)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Theme.accent)
         }
-        .buttonStyle(MeetingChipStyle(fill: Color.accentColor.opacity(0.1), rounded: true))
+        .buttonStyle(MeetingChipStyle(fill: Theme.accent.opacity(0.1), rounded: true))
         .help(link.url)
         .contextMenu {
             Button("Abrir") { open(link) }

@@ -1,7 +1,7 @@
 import Observation
 
-/// Where the meetings window should go when something outside it asks,
-/// such as a menu item: a meeting, or the Pendências tab. The window takes
+/// Where the window should go when something outside it asks, such as the
+/// menu: a meeting, the Pendências or the Ajustes. The window takes
 /// the request when it appears, or right away when it is already open.
 @MainActor
 @Observable
@@ -11,6 +11,7 @@ final class Navigator {
     enum Request: Equatable {
         case meeting(Int64)
         case tasks
+        case settings
     }
 
     private(set) var request: Request?

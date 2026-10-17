@@ -39,11 +39,22 @@ public struct MeetingBadge: Equatable, Sendable {
 /// The lines of a "Novidades" item in the menu.
 public enum NewsText {
     /// "3 pendências · 2 decisões · 1h de reunião"; counts of zero are left out.
-    public static func summaryReady(openTasks: Int, decisions: Int, durationMs: Int?) -> String {
+    public static func summaryReady(tasks: Int, decisions: Int, durationMs: Int?) -> String {
         var parts: [String] = []
-        if openTasks > 0 { parts.append(CountText.of(openTasks, "pendência", "pendências")) }
+        if tasks > 0 { parts.append(CountText.of(tasks, "pendência", "pendências")) }
         if decisions > 0 { parts.append(CountText.of(decisions, "decisão", "decisões")) }
         if let durationMs { parts.append("\(DurationText.short(ms: durationMs)) de reunião") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// The numbers of the menu's cards.
+public enum MenuNumbers {
+    /// Meetings started this calendar week, silent recordings left out.
+    public static func meetingsThisWeek(_ meetings: [Meeting], silent: Set<Int64> = [], now: Date = Date(), calendar: Calendar = .current) -> Int {
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: now) else { return 0 }
+        return meetings.count { meeting in
+            week.contains(meeting.startedAt) && !(meeting.id.map(silent.contains) ?? false)
+        }
     }
 }

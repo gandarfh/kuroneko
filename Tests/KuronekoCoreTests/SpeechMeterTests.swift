@@ -43,6 +43,38 @@ import Testing
         #expect(!meter.isSpeaking(at: t0))
     }
 
+    @Test func levelPerChannel() {
+        let meter = SpeechMeter()
+        meter.hear(level: -20, from: .system, at: t0)
+        meter.hear(level: -50, from: .mic, at: t0)
+        #expect(meter.level(of: .system, at: t0 + 0.1) == -20)
+        #expect(meter.level(of: .mic, at: t0 + 0.1) == -50)
+        // A channel that stopped sending buffers is silent.
+        #expect(meter.level(of: .mic, at: t0 + SpeechMeter.freshness + 0.01) == -.infinity)
+        meter.reset()
+        #expect(meter.level(of: .system, at: t0) == -.infinity)
+    }
+
+    @Test func loudnessForBars() {
+        #expect(SpeechMeter.loudness(-.infinity) == 0)
+        #expect(SpeechMeter.loudness(-80) == 0)
+        #expect(SpeechMeter.loudness(-35) == 0.5)
+        #expect(SpeechMeter.loudness(0) == 1)
+    }
+
+    @Test func trailKeepsTheLastReadings() {
+        var trail = LevelTrail(count: 3)
+        #expect(trail.values == [0, 0, 0])
+        trail.push(0.5)
+        trail.push(2)
+        #expect(trail.values == [0, 0.5, 1])
+        trail.push(0.25)
+        #expect(trail.values == [0.5, 1, 0.25])
+        var empty = LevelTrail(count: 0)
+        empty.push(1)
+        #expect(empty.values.isEmpty)
+    }
+
     @Test func levelOfInt16Samples() {
         let full: [Int16] = [Int16.max, Int16.min, Int16.max, Int16.min]
         let silence = [Int16](repeating: 0, count: 4)
@@ -59,7 +91,7 @@ import Testing
         let samples = buffer.floatChannelData![0]
 
         let meter = SpeechMeter()
-        let writer = try ResamplingWavWriter(inputFormat: format, fileURL: url, meter: meter)
+        let writer = try ResamplingWavWriter(inputFormat: format, fileURL: url, meter: meter, channel: .mic)
         for i in 0..<4800 { samples[i] = 0 }
         try writer.append(buffer)
         #expect(!meter.isSpeaking())
@@ -67,6 +99,8 @@ import Testing
         for i in 0..<4800 { samples[i] = 0.5 * sinf(Float(i) * 2 * .pi * 440 / 48000) }
         try writer.append(buffer)
         #expect(meter.isSpeaking())
+        #expect(meter.level(of: .mic) > -10)
+        #expect(meter.level(of: .system) == -.infinity)
         writer.finish()
     }
 }

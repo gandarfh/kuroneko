@@ -3,12 +3,6 @@ import Testing
 @testable import KuronekoCore
 
 @Suite struct TaskListTests {
-    private let calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "America/Sao_Paulo")!
-        return calendar
-    }()
-
     private let summary = """
         ## Pendências
         - [ ] Abrir o card do cache de sessões — Bruno [12:31]
@@ -25,7 +19,7 @@ import Testing
         try db.setDocument(meetingId: planning, kind: "summary", body: summary, source: "claude")
         let daily = try db.startMeeting(title: "Daily do time", at: Date(timeIntervalSince1970: 1_800_400_000)).id!
         try db.addNote(meetingId: daily, tMs: 662_000, text: "subir o ambiente de QA hoje #acao")
-        return (db, try db.openTasks())
+        return (db, try db.tasks())
     }
 
     @Test func filtersByOwner() throws {
@@ -35,6 +29,63 @@ import Testing
         #expect(tasks.filter(TaskFilter.mine.matches).map(\.text) == ["subir o ambiente de QA hoje", "Revisar o PR do login"])
         #expect(tasks.filter(TaskFilter.owner("Bruno").matches).map(\.text) == ["Abrir o card do cache de sessões", "Atualizar o board"])
         #expect(TaskFilter.owners(in: tasks) == ["Bruno", "Lucía"])
+    }
+
+    @Test func othersAreEveryoneButTheUserWithAnOwner() throws {
+        let tasks = try tasks().tasks
+
+        #expect(tasks.filter(TaskFilter.others.matches).map(\.text) == [
+            "Abrir o card do cache de sessões", "Mandar o relatório do teste de carga", "Atualizar o board",
+        ])
+    }
+
+    @Test func filtersByAnyOfSeveralPeople() throws {
+        let tasks = try tasks().tasks
+
+        #expect(TaskListLayout.filter(tasks, owners: ["bruno", "Lucia"]).map(\.text) == [
+            "Abrir o card do cache de sessões", "Mandar o relatório do teste de carga", "Atualizar o board",
+        ])
+        #expect(TaskListLayout.filter(tasks, owners: []).count == tasks.count)
+    }
+
+    @Test func groupsByOwnerAndByTagKey() throws {
+        let (db, tasks) = try tasks()
+
+        let byOwner = TaskListLayout.sections(tasks, grouping: .owner)
+        #expect(byOwner.map(\.title) == ["Você", "Bruno", "Lucía", "Sem dono"])
+        #expect(byOwner.map(\.tasks.count) == [2, 2, 1, 1])
+
+        let board = try #require(tasks.first { $0.text == "Atualizar o board" })
+        try db.addTaskTag("project=pix", taskId: board.taskId)
+        let qa = try #require(tasks.first { $0.text.hasPrefix("subir") })
+        try db.addTaskTag("project=sdks", taskId: qa.taskId)
+        let tagged = try db.tasks()
+
+        #expect(TaskListLayout.tagKeys(in: tagged) == ["project"])
+        let byProject = TaskListLayout.sections(tagged, grouping: .tagKey("project"))
+        #expect(byProject.map(\.title) == ["pix", "sdks", "Sem project"])
+        #expect(byProject.map(\.tasks.count) == [1, 1, 4])
+        #expect(TaskListLayout.filter(tagged, tags: ["project=pix"]).map(\.text) == ["Atualizar o board"])
+        #expect(TaskListLayout.sections(tagged, grouping: .meeting).map(\.meetingId) == TaskGroup.byMeeting(tagged).map(\.meetingId))
+    }
+
+    @Test func groupsByStatusInTheUsersOrder() throws {
+        let (db, tasks) = try tasks()
+        let statuses = try db.taskStatuses()
+        let doing = try #require(statuses.first { $0.name == "Fazendo" }?.id)
+        try db.setTaskStatus(.task(id: tasks[0].taskId), statusId: doing)
+
+        let sections = TaskListLayout.sections(try db.tasks(), grouping: .status, statuses: statuses)
+
+        #expect(sections.map(\.title) == ["Aberta", "Fazendo"])
+        #expect(sections.map(\.tasks.count) == [5, 1])
+        #expect(sections.map(\.statusId) == [statuses[0].id, statuses[1].id])
+
+        // The board keeps the empty columns, somewhere to drop.
+        let columns = TaskListLayout.sections(try db.tasks(), grouping: .status, statuses: statuses, keepingEmpty: true)
+        #expect(columns.map(\.title) == ["Aberta", "Fazendo", "Feita"])
+        #expect(columns.map(\.tasks.count) == [5, 1, 0])
+        #expect(TaskListLayout.sections(tasks, grouping: .owner).first?.value == "você")
     }
 
     @Test func groupsByMeetingNewestFirst() throws {
@@ -53,23 +104,17 @@ import Testing
         #expect(tasks.filter { $0.matches("") }.count == 6)
     }
 
-    @Test func ageCountsWholeDaysSinceTheMeeting() throws {
-        let task = try tasks().tasks.last!
-        let start = task.meetingStartedAt
-
-        #expect(task.openText(now: start.addingTimeInterval(3600), calendar: calendar) == nil)
-        #expect(task.openText(now: calendar.date(byAdding: .day, value: 1, to: start)!, calendar: calendar) == "aberta há 1 dia")
-        let fiveDays = calendar.date(byAdding: .day, value: 5, to: start)!
-        #expect(task.openText(now: fiveDays, calendar: calendar) == "aberta há 5 dias")
-        #expect(!task.isLate(now: calendar.date(byAdding: .day, value: 2, to: start)!, calendar: calendar))
-        #expect(task.isLate(now: fiveDays, calendar: calendar))
-    }
-
-    @Test func doneTasksAreNeverLate() throws {
+    @Test func hidingAStatusLeavesItsPendenciasOut() throws {
         let (db, tasks) = try tasks()
-        let note = tasks.first { $0.source == "note" }!
-        let done = try db.setTaskDone(TaskRef(note.ref)!, true)
+        let cancelled = try db.createTaskStatus("Cancelada", color: "red")
+        try db.setTaskStatus(.task(id: tasks[0].taskId), statusId: try #require(cancelled.id))
+        let all = try db.tasks()
 
-        #expect(!done.isLate(now: note.meetingStartedAt.addingTimeInterval(30 * 86400), calendar: calendar))
+        #expect(TaskListLayout.filter(all, hiding: [try #require(cancelled.id)]).count == 5)
+        #expect(TaskListLayout.filter(all, hiding: []).count == 6)
+        // A status created afterwards shows up until it is hidden.
+        let waiting = try db.createTaskStatus("Esperando")
+        try db.setTaskStatus(.task(id: tasks[1].taskId), statusId: try #require(waiting.id))
+        #expect(TaskListLayout.filter(try db.tasks(), hiding: [try #require(cancelled.id)]).map(\.status).contains("Esperando"))
     }
 }

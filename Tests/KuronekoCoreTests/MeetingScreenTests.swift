@@ -85,7 +85,6 @@ import Testing
         let tasks = try db.tasks(meetingId: meeting)
 
         #expect(tasks.map(\.text) == ["Mandar o relatório", "cobrar o QA", "Abrir o card", "Sem hora"])
-        #expect(tasks.map(\.done) == [true, false, false, false])
         #expect(tasks.map(\.source) == ["summary", "note", "summary", "summary"])
         #expect(try db.tasks(meetingId: 999).isEmpty)
     }

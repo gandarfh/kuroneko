@@ -1,14 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// Colors of the meetings window, for light and dark mode.
+/// Colors of the meetings window, for light and dark mode (the app is always
+/// dark; see `Theme`).
 enum ListPalette {
-    static let background = Color(light: 0xF5F5F7, dark: 0x1C1C1E)
-    static let card = Color(light: 0xFFFFFF, dark: 0x2A2A2D)
-    static let cardBorder = Color(light: 0xE2E2E6, dark: 0x3A3A3E)
-    static let cardHoverBorder = Color(light: 0xC8C8CE, dark: 0x505055)
+    static let background = Color(light: 0xF5F5F7, dark: 0x111113)
+    static let card = Color(light: 0xFFFFFF, dark: 0x1E1E20)
+    static let cardHover = Color(light: 0xF0F0F3, dark: 0x262629)
     /// Lines inside a card.
-    static let rule = Color(light: 0xEDEDF0, dark: 0x363639)
+    static let rule = Color(light: 0xEDEDF0, dark: 0x2A2A2D)
     /// Pendências open for too long.
     static let late = Color(light: 0xA31D15, dark: 0xFF8A80)
     static let recording = Tint(
@@ -92,29 +92,28 @@ struct NewMark: View {
     var body: some View {
         Text("Novo")
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.accent)
             .padding(.horizontal, 7)
             .padding(.vertical, 1)
-            .background(Color.accentColor, in: Capsule())
+            .background(Theme.accentFill, in: Capsule())
             .accessibilityLabel("Novidade")
     }
 }
 
-/// White (or dark gray) rounded card on the gray window, with a border that
-/// darkens under the pointer.
+/// A soft card on the near black window, lighter under the pointer; the one
+/// being edited gets an amber border.
 struct CardStyle: ViewModifier {
     var highlighted = false
     @State private var hovering = false
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
         content
-            .background(ListPalette.card, in: shape)
+            .background(hovering ? ListPalette.cardHover : ListPalette.card, in: shape)
             .overlay {
-                shape.strokeBorder(
-                    highlighted ? Color.accentColor : hovering ? ListPalette.cardHoverBorder : ListPalette.cardBorder,
-                    lineWidth: highlighted ? 2 : 1
-                )
+                if highlighted {
+                    shape.strokeBorder(Theme.accent, lineWidth: 1.5)
+                }
             }
             .onHover { hovering = $0 }
     }

@@ -398,8 +398,9 @@ struct QuickNoteView: View {
         }
         .padding(EdgeInsets(top: 14, leading: 16, bottom: 12, trailing: 16))
         .frame(width: QuickNoteController.width)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator))
+        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.hairline))
+        .tint(Theme.accent)
         .onAppear { focused = true }
         .onChange(of: model.focusRequest) { focused = true }
     }
@@ -492,7 +493,7 @@ struct QuickNoteView: View {
                 Button("Abrir Ajustes do Sistema") {
                     model.openScreenRecordingSettings()
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.accentLink)
             case .noWindow(let app):
                 Text(app.map { "\($0) não tem janela aberta para o print." } ?? "Nenhuma janela para o print.")
             case .failed:

@@ -10,17 +10,23 @@ struct MeetingDetailView: View {
     let meetingId: Int64
     let focusMs: Int?
     let playOnOpen: Bool
+    /// To another meeting, from a pendência that it spoke of too.
+    let go: (MeetingsView.Route) -> Void
 
-    init(state: AppState, meetingId: Int64, focusMs: Int?, playOnOpen: Bool = false) {
+    init(state: AppState, meetingId: Int64, focusMs: Int?, playOnOpen: Bool = false, go: @escaping (MeetingsView.Route) -> Void) {
         self.state = state
         self.meetingId = meetingId
         self.focusMs = focusMs
         self.playOnOpen = playOnOpen
+        self.go = go
     }
 
     @State private var data: MeetingScreenData?
     @State private var loaded = false
     @State private var player = MeetingPlayer()
+    /// The samples of "Quem é essa voz?", apart from the transcript's player:
+    /// always at 1x, and hearing a voice doesn't move the transcript.
+    @State private var voicePlayer = MeetingPlayer()
     @State private var naming: NamingTarget?
     @FocusState private var focus: MeetingField?
     @State private var keys = MeetingKeyMonitor()
@@ -67,11 +73,17 @@ struct MeetingDetailView: View {
             // Back on screen after leaving it, which let go of the audio.
             if let data, !data.isRecording, !player.hasAudio {
                 player.load(data.meeting)
+                voicePlayer.load(data.meeting)
             }
         }
         .onDisappear {
             player.stop()
+            voicePlayer.stop()
             keys.stop()
+        }
+        // One sound at a time.
+        .onChange(of: player.isPlaying) { _, playing in
+            if playing { voicePlayer.pause() }
         }
         .onChange(of: playingId) { _, id in
             guard following, let id else { return }
@@ -80,6 +92,7 @@ struct MeetingDetailView: View {
         .confirmationDialog("Apagar esta reunião?", isPresented: $confirmingDelete) {
             Button("Apagar reunião e áudio", role: .destructive) {
                 player.stop()
+                voicePlayer.stop()
                 state.deleteMeeting(meetingId)
                 dismiss()
             }
@@ -104,7 +117,7 @@ struct MeetingDetailView: View {
                             .padding(.horizontal, 24)
                             .padding(.top, 18)
                             .padding(.bottom, 18)
-                        MeetingOverviewView(state: state, data: data, canPlay: canPlay(data), onPlay: play)
+                        MeetingOverviewView(state: state, data: data, canPlay: canPlay(data), onPlay: play, go: go)
                             .padding(.horizontal, 24)
                             .padding(.bottom, 18)
                         Section {
@@ -134,7 +147,7 @@ struct MeetingDetailView: View {
                         } label: {
                             Label("Acompanhar o áudio", systemImage: "waveform")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.accent)
                         .clipShape(Capsule())
                         .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
                         .padding(.bottom, 10)
@@ -461,8 +474,8 @@ struct MeetingDetailView: View {
         VoiceNaming(state: state, meetingId: meetingId, data: data, canPlay: canPlay(data), target: $naming) { cluster in
             // A sample of the voice, without moving the transcript.
             guard let sample = data.samples[cluster] else { return }
-            following = false
-            player.play(fromMs: sample.startMs, stopAfterMs: sample.durationMs)
+            player.pause()
+            voicePlayer.play(fromMs: sample.startMs, stopAfterMs: sample.durationMs)
         }
     }
 
@@ -498,8 +511,10 @@ struct MeetingDetailView: View {
             // The audio of a call still being recorded is not played.
             if new.isRecording {
                 player.stop()
+                voicePlayer.stop()
             } else {
                 player.load(new.meeting)
+                voicePlayer.load(new.meeting)
             }
         }
         data = new

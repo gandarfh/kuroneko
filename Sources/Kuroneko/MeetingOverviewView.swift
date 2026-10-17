@@ -8,9 +8,18 @@ struct MeetingOverviewView: View {
     let data: MeetingScreenData
     let canPlay: Bool
     let onPlay: (Int) -> Void
+    let go: (MeetingsView.Route) -> Void
 
     @State private var editing = false
     @State private var confirmingRegenerate = false
+    /// A pendência being written by hand, and who does it.
+    @State private var newTask: String?
+    @State private var newTaskOwner = ""
+    @FocusState private var newTaskFocused: Bool
+    /// Pendências showing every meeting that spoke of them, and the one
+    /// being changed.
+    @State private var expanded: Set<Int64> = []
+    @State private var taskEdit: TaskEdit?
 
     private var meetingId: Int64 { data.meeting.id ?? 0 }
 
@@ -83,7 +92,10 @@ struct MeetingOverviewView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     MeetingStyle.sectionTitle("Resumo")
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Button("Gerar resumo") { state.summarize(meetingId) }
+                        Button { state.summarize(meetingId) } label: {
+                            Label("Gerar resumo", systemImage: "sparkles")
+                        }
+                        .buttonStyle(.accent)
                         Text("O texto da reunião vai para o \(state.summaryAgent.title); o áudio fica no Mac.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -131,7 +143,7 @@ struct MeetingOverviewView: View {
                         .lineLimit(2)
                         .help(failure)
                     Button("Tentar de novo") { state.summarize(meetingId) }
-                        .buttonStyle(.link)
+                        .buttonStyle(.accentLink)
                 } else {
                     Text(Self.origin(of: summary))
                     Button("Atualizar resumo") {
@@ -141,10 +153,10 @@ struct MeetingOverviewView: View {
                             confirmingRegenerate = true
                         }
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.accentLink)
                 }
                 Button("Editar") { editing = true }
-                    .buttonStyle(.link)
+                    .buttonStyle(.accentLink)
                     .disabled(state.isSummarizing(meetingId))
             }
             .font(.callout)
@@ -170,28 +182,69 @@ struct MeetingOverviewView: View {
 
     @ViewBuilder
     private var tasks: some View {
-        if !data.tasks.isEmpty {
+        if !data.tasks.isEmpty || newTask != nil || data.hasSpeech {
             VStack(alignment: .leading, spacing: 6) {
-                MeetingStyle.sectionTitle("Pendências · \(data.tasks.count)")
-                RowsCard(items: data.tasks) { task in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Toggle(isOn: Binding(
-                            get: { task.done },
-                            set: { done in
-                                if let ref = TaskRef(task.ref) { state.setTaskDone(ref, done) }
-                            }
-                        )) {
-                            EmptyView()
+                HStack(alignment: .firstTextBaseline) {
+                    MeetingStyle.sectionTitle(data.tasks.isEmpty ? "Pendências" : "Pendências · \(data.tasks.count)")
+                    Spacer()
+                    if newTask == nil {
+                        Button("+ Pendência") {
+                            newTask = ""
+                            newTaskOwner = ""
+                            DispatchQueue.main.async { newTaskFocused = true }
                         }
-                        .toggleStyle(.checkbox)
-                        .labelsHidden()
-                        .accessibilityLabel(task.text)
-                        itemText(task.text, detail: task.owner, done: task.done)
-                        time(task.startMs)
+                        .buttonStyle(.accentLink)
+                        .font(.callout)
+                        .help("Escrever uma pendência desta reunião")
                     }
+                }
+                if !data.tasks.isEmpty {
+                    RowsCard(items: data.tasks, padded: false) { task in
+                        TaskRow(
+                            task: task, showsMeeting: false, current: meetingId, canPlay: canPlay, state: state, statuses: data.statuses,
+                            catalog: data.catalog, people: data.persons.values.sorted(),
+                            expanded: $expanded, edit: $taskEdit, go: open
+                        )
+                    }
+                }
+                if newTask != nil {
+                    newTaskField
                 }
             }
         }
+    }
+
+    /// A moment of this meeting plays here; another meeting opens.
+    private func open(_ route: MeetingsView.Route) {
+        if case .meeting(meetingId, let focusMs?, true) = route {
+            onPlay(focusMs)
+        } else {
+            go(route)
+        }
+    }
+
+    private var newTaskField: some View {
+        HStack(spacing: 6) {
+            TextField("O que precisa ser feito", text: Binding(get: { newTask ?? "" }, set: { newTask = $0 }))
+                .textFieldStyle(.roundedBorder)
+                .focused($newTaskFocused)
+                .onSubmit(saveNewTask)
+            TextField("Quem faz", text: $newTaskOwner)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 120)
+                .onSubmit(saveNewTask)
+            Button("Cancelar") { newTask = nil }
+                .keyboardShortcut(.cancelAction)
+            Button("Salvar", action: saveNewTask)
+                .buttonStyle(.accent)
+                .disabled((newTask ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    private func saveNewTask() {
+        guard let text = newTask, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        state.addTask(text, owner: newTaskOwner, meetingId: meetingId)
+        newTask = nil
     }
 
     @ViewBuilder
@@ -289,11 +342,9 @@ struct MeetingOverviewView: View {
             .frame(width: 16)
     }
 
-    private func itemText(_ text: String, detail: String?, done: Bool = false) -> some View {
+    private func itemText(_ text: String, detail: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(Markdown.inline(text))
-                .strikethrough(done)
-                .foregroundStyle(done ? .secondary : .primary)
                 .fixedSize(horizontal: false, vertical: true)
             if let detail {
                 Text(detail)
@@ -322,7 +373,7 @@ enum Markdown {
 }
 
 /// The summary as Markdown, to fix what Claude got wrong. Pendências are
-/// lines "- [ ] o quê — quem [mm:ss]" under "## Pendências".
+/// not part of it: they are changed in their own rows.
 private struct SummaryEditor: View {
     let onSave: (String) -> Void
     @State private var text: String
@@ -336,7 +387,7 @@ private struct SummaryEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Editar o resumo").font(.headline)
-            Text("Em Markdown. Pendências em “## Pendências”, uma por linha: “- [ ] o quê — quem [mm:ss]”.")
+            Text("Em Markdown. As pendências não ficam no texto: mude-as na lista da reunião.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -355,7 +406,7 @@ private struct SummaryEditor: View {
                     dismiss()
                 }
                 .keyboardShortcut("s", modifiers: .command)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.accent)
                 .help("Salvar (⌘S)")
             }
         }

@@ -12,8 +12,9 @@ public final class ResamplingWavWriter {
     private var file: AVAudioFile?
     private let outputFormat: AVAudioFormat
     private let meter: SpeechMeter?
+    private let channel: SpeechMeter.Channel
 
-    public init(inputFormat: AVAudioFormat, fileURL: URL, meter: SpeechMeter? = nil) throws {
+    public init(inputFormat: AVAudioFormat, fileURL: URL, meter: SpeechMeter? = nil, channel: SpeechMeter.Channel = .system) throws {
         guard let outputFormat = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: Self.outputSampleRate,
@@ -27,6 +28,7 @@ public final class ResamplingWavWriter {
         }
         self.outputFormat = outputFormat
         self.meter = meter
+        self.channel = channel
         self.inputFormat = inputFormat
         self.converter = converter
         self.file = try AVAudioFile(
@@ -76,7 +78,7 @@ public final class ResamplingWavWriter {
         if output.frameLength > 0 {
             try file.write(from: output)
             if let meter, let samples = output.int16ChannelData?[0] {
-                meter.hear(level: SpeechMeter.level(of: UnsafeBufferPointer(start: samples, count: Int(output.frameLength))))
+                meter.hear(level: SpeechMeter.level(of: UnsafeBufferPointer(start: samples, count: Int(output.frameLength))), from: channel)
             }
         }
     }

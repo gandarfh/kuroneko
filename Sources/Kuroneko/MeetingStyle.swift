@@ -5,9 +5,9 @@ import SwiftUI
 
 /// Colors and small pieces shared by the parts of the meeting screen.
 enum MeetingStyle {
-    static let content = Color(nsColor: .textBackgroundColor)
-    static let bar = Color(nsColor: .windowBackgroundColor)
-    static let border = Color(nsColor: .separatorColor)
+    static let content = ListPalette.background
+    static let bar = Color(light: 0xECECEF, dark: 0x18181A)
+    static let border = ListPalette.rule
     static let chipFill = Color.primary.opacity(0.06)
 
     static let noteFill = dynamic(light: (0xFFF4D1, 1), dark: (0xFFD60A, 0.13))
@@ -36,11 +36,9 @@ enum MeetingStyle {
         })
     }
 
-    /// "Pendências · 3", "Transcrição".
+    /// "PENDÊNCIAS · 3", "TRANSCRIÇÃO".
     static func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(.secondary)
+        SectionLabel(text: text)
     }
 }
 
@@ -55,6 +53,7 @@ struct PlayTimeButton: View {
     let canPlay: Bool
     var help: String?
     let onPlay: (Int) -> Void
+    @State private var hovering = false
 
     var body: some View {
         if canPlay {
@@ -66,10 +65,11 @@ struct PlayTimeButton: View {
                     Text(Format.clock(ms: ms))
                 }
                 .font(.callout.monospacedDigit())
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(hovering ? Theme.accent : .secondary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .onHover { hovering = $0 }
             .help(help ?? "Ouvir a partir de \(Format.clock(ms: ms))")
             .accessibilityLabel("Ouvir a partir de \(Format.clock(ms: ms))")
         } else {
@@ -119,6 +119,8 @@ struct MeetingChipStyle: ButtonStyle {
 /// A bordered card with one row per item, as in Pendências and Decisões.
 struct RowsCard<Item, Row: View>: View {
     let items: [Item]
+    /// False for rows with their own padding.
+    var padded = true
     @ViewBuilder let row: (Item) -> Row
 
     var body: some View {
@@ -128,12 +130,12 @@ struct RowsCard<Item, Row: View>: View {
                     Divider()
                 }
                 row(item)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, padded ? 14 : 0)
+                    .padding(.vertical, padded ? 9 : 0)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(MeetingStyle.border))
+        .background(ListPalette.card, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
     }
 }
 

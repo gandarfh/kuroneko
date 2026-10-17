@@ -147,6 +147,16 @@ import Testing
         #expect(!forClaude.contains("## Resumo"))
     }
 
+    @Test func transcriptTextListsTheMeetingsPendencias() throws {
+        let db = try AppDatabase.inMemory()
+        let id = try recordedMeeting(db)
+        try db.setDocument(meetingId: id, kind: "summary", body: "## Resumo\nMigração.\n\n## Pendências\n- Migrar o banco — Renato [01:00]", source: "claude")
+
+        let text = TranscriptText.render(try #require(try db.export(meetingId: id)), tasks: try db.tasks(meetingId: id))
+
+        #expect(text.contains("## Resumo\nMigração.\n\n## Pendências\n\n- Migrar o banco — Renato [01:00] (Aberta)\n- cobrar migração — você [01:11] (Aberta)\n\n## Transcrição"))
+    }
+
     @Test func documentWithItsOwnHeadingIsNotTitledTwice() throws {
         let db = try AppDatabase.inMemory()
         let id = try recordedMeeting(db)

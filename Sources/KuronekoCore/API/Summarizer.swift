@@ -41,7 +41,31 @@ public struct Summarizer: Sendable {
         if markingNews {
             try db.markNews(meetingId: meetingId)
         }
+        // The summary is saved either way; repeated pendências can be
+        // looked for again.
+        do {
+            try proposeMerges(meetingId: meetingId)
+        } catch {
+            FileLog.shared.append("pendências repetidas da reunião \(meetingId): \(error)")
+        }
         return document
+    }
+
+    /// Asks the agent which of the meeting's new pendências repeat ones
+    /// still open, and keeps that as proposals for the user; nothing is
+    /// joined here. Returns how many.
+    @discardableResult
+    public func proposeMerges(meetingId: Int64, now: Date = Date()) throws -> Int {
+        let new = try TaskMatcher.newTasks(db, meetingId: meetingId)
+        guard !new.isEmpty else { return 0 }
+        let open = try TaskMatcher.candidates(db, meetingId: meetingId, excluding: Set(new.map(\.taskId)), now: now)
+        guard !open.isEmpty else { return 0 }
+        let answer = try run(agent(), TaskMatcher.instructions, TaskMatcher.input(new: new, open: open))
+        let pairs = TaskMatcher.parse(answer, new: Set(new.map(\.taskId)), open: Set(open.map(\.taskId)))
+        for pair in pairs {
+            try db.proposeMerge(taskId: pair.task, into: pair.into, at: now)
+        }
+        return pairs.count
     }
 }
 

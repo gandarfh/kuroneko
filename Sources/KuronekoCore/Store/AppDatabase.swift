@@ -221,6 +221,23 @@ public final class AppDatabase: Sendable {
             }
         }
 
+        migrator.registerMigration("v8") { db in
+            // Pendências become their own, mentioned by meetings, instead of
+            // lines of the summaries and #acao notes read on the fly; the
+            // ones checked off go to "Feita", and the summaries keep the rest.
+            try TaskStore.createTables(db)
+            let feita = try TaskStatus.filter(Column("name") == "Feita").fetchOne(db)?.id
+            for var document in try MeetingDocument.filter(Column("kind") == "summary").fetchAll(db) {
+                let body = document.body
+                try TaskStore.takeTasks(db, from: &document, checkedStatusId: feita)
+                if document.body != body { try document.update(db) }
+            }
+            for note in try Note.fetchAll(db) {
+                try TaskStore.syncNote(db, note: note, resolvedStatusId: feita)
+            }
+            try TaskStore.orderByMeetings(db)
+        }
+
         return migrator
     }
 
@@ -365,6 +382,7 @@ public final class AppDatabase: Sendable {
             // direct deletes unless recursive_triggers is enabled, and the
             // cascade would leave stale rows behind in segmentFts/noteFts.
             try Segment.filter(Column("meetingId") == id).deleteAll(db)
+            try TaskStore.removeMentions(db, TaskMention.filter(Column("meetingId") == id))
             try db.execute(
                 sql: "DELETE FROM attachment WHERE noteId IN (SELECT id FROM note WHERE meetingId = ?)",
                 arguments: [id]
@@ -439,6 +457,7 @@ public final class AppDatabase: Sendable {
             return try writer.write { db in
                 var note = Note(meetingId: meetingId, tMs: tMs, text: text)
                 try note.insert(db)
+                try TaskStore.syncNote(db, note: note)
                 for file in moved {
                     var attachment = Attachment(
                         noteId: note.id!,
@@ -464,6 +483,7 @@ public final class AppDatabase: Sendable {
         let files = try writer.write { db -> [URL] in
             guard let note = try Note.fetchOne(db, key: id) else { return [] }
             let attachments = try Attachment.filter(Column("noteId") == id).fetchAll(db)
+            try TaskStore.removeMentions(db, TaskMention.filter(Column("noteId") == id))
             try Attachment.filter(Column("noteId") == id).deleteAll(db)
             _ = try Note.deleteOne(db, key: id)
             return attachments.map { storage.file(meetingId: note.meetingId, path: $0.path) }
@@ -530,7 +550,8 @@ public final class AppDatabase: Sendable {
         }
     }
 
-    /// Creates or replaces the meeting's text of that kind.
+    /// Creates or replaces the meeting's text of that kind. The Pendências
+    /// of a summary become the meeting's pendências (`TaskStore.takeTasks`).
     @discardableResult
     public func setDocument(meetingId: Int64, kind: String, body: String, source: String?, at date: Date = Date()) throws -> MeetingDocument {
         try writer.write { db in
@@ -541,6 +562,7 @@ public final class AppDatabase: Sendable {
             document.body = body
             document.source = source
             document.updatedAt = date
+            try TaskStore.takeTasks(db, from: &document)
             try document.save(db)
             return document
         }
@@ -570,11 +592,13 @@ public final class AppDatabase: Sendable {
             guard let body = try change(document.body), body != document.body else { return document }
             document.body = body
             document.updatedAt = date
+            try TaskStore.takeTasks(db, from: &document)
             try document.update(db)
             return document
         }
     }
 
+    /// The pendências of a summary stay.
     public func deleteDocument(meetingId: Int64, kind: String) throws {
         try writer.write { db in
             _ = try MeetingDocument.filter(Column("meetingId") == meetingId && Column("kind") == kind).deleteAll(db)
@@ -730,7 +754,7 @@ public final class AppDatabase: Sendable {
 
     /// Names a voice of a meeting. The person is created when new, every
     /// segment of that voice is attributed to them, the meeting's texts (the
-    /// summary) call them by the new name instead of "Pessoa N" or the name
+    /// summary, its pendências) call them by the new name instead of "Pessoa N" or the name
     /// they had, the voice becomes a voiceprint so future meetings recognize
     /// them automatically, and rules about who was there are checked again.
     @discardableResult
@@ -758,6 +782,7 @@ public final class AppDatabase: Sendable {
                 document.updatedAt = Date()
                 try document.update(db)
             }
+            try TaskStore.rename(db, meetingId: meetingId, from: previousName, to: person.name)
             try Segment
                 .filter(Column("meetingId") == meetingId && Column("diarCluster") == diarCluster)
                 .updateAll(db, Column("personId").set(to: personId))

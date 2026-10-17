@@ -69,12 +69,12 @@ private struct ChipStyle: ButtonStyle {
     let highlighted: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        let fill = highlighted ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.08)
+        let fill = highlighted ? Theme.accent.opacity(0.3) : Color.primary.opacity(0.08)
         configuration.label
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(fill.opacity(configuration.isPressed ? 1.6 : 1), in: Capsule())
-            .overlay(Capsule().strokeBorder(highlighted ? Color.accentColor : .clear))
+            .overlay(Capsule().strokeBorder(highlighted ? Theme.accent : .clear))
             .contentShape(Capsule())
     }
 }

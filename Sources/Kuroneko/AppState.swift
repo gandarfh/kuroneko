@@ -132,6 +132,11 @@ final class AppState {
         capture.speech.isSpeaking()
     }
 
+    /// How loud the channel is right now, in dBFS.
+    func audioLevel(_ channel: SpeechMeter.Channel) -> Float {
+        capture.speech.level(of: channel)
+    }
+
     var startedAutomatically: Bool {
         policy.ownsActiveMeeting
     }
@@ -179,9 +184,74 @@ final class AppState {
         perform("apagar o link") { try db.deleteLink(id) }
     }
 
-    /// Checks a pendência off or back on, from the summary or a #acao note.
-    func setTaskDone(_ ref: TaskRef, _ done: Bool) {
-        perform(done ? "marcar a pendência como feita" : "reabrir a pendência") { try db.setTaskDone(ref, done) }
+    func setTaskStatus(_ ref: TaskRef, statusId: Int64) {
+        perform("mudar o status da pendência") { try db.setTaskStatus(ref, statusId: statusId) }
+    }
+
+    /// The list of statuses, the same for every pendência; nil or the error
+    /// to show where it was edited.
+    func createTaskStatus(_ name: String, color: String) -> String? {
+        statusChange("criar o status") { try db.createTaskStatus(name, color: color) }
+    }
+
+    func updateTaskStatus(_ id: Int64, name: String, color: String? = nil) -> String? {
+        statusChange("mudar o status") { try db.updateTaskStatus(id, name: name, color: color) }
+    }
+
+    func moveTaskStatus(_ id: Int64, to index: Int) {
+        perform("reordenar os status") { try db.moveTaskStatus(id, to: index) }
+    }
+
+    func deleteTaskStatus(_ id: Int64, moveTo: Int64) -> String? {
+        statusChange("apagar o status") { try db.deleteTaskStatus(id, moveTo: moveTo) }
+    }
+
+    private func statusChange(_ action: String, _ body: () throws -> Void) -> String? {
+        do {
+            try body()
+            dataVersion += 1
+            return nil
+        } catch let error as TaskError {
+            return error.description
+        } catch {
+            report(error, while: action)
+            return "Não deu para \(action)."
+        }
+    }
+
+    /// Just before `other` in the user's order of the pendências, or after.
+    func moveTask(_ taskId: Int64, nextTo other: Int64, after: Bool = false) {
+        perform("reordenar as pendências") { try db.moveTask(taskId, nextTo: other, after: after) }
+    }
+
+    func updateTask(_ ref: TaskRef, text: String, owner: String?) {
+        perform("editar a pendência") { try db.updateTask(ref, text: text, owner: owner) }
+    }
+
+    func addTask(_ text: String, owner: String?, meetingId: Int64, atMs tMs: Int? = nil) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        perform("criar a pendência") { try db.addTask(text, owner: owner, meetingId: meetingId, tMs: tMs) }
+    }
+
+    /// The same subject: `taskId` joins `intoTaskId` with its mentions.
+    func mergeTasks(_ taskId: Int64, into intoTaskId: Int64) {
+        perform("juntar as pendências") { try db.mergeTasks(taskId, into: intoTaskId) }
+    }
+
+    func rejectMerge(_ taskId: Int64, into intoTaskId: Int64) {
+        perform("manter as pendências separadas") { try db.rejectMerge(taskId, into: intoTaskId) }
+    }
+
+    func splitTaskMention(_ mentionId: Int64) {
+        perform("separar a pendência") { try db.splitTaskMention(mentionId) }
+    }
+
+    func addTaskTag(_ name: String, taskId: Int64) {
+        perform("pôr a tag na pendência") { try db.addTaskTag(name, taskId: taskId) }
+    }
+
+    func removeTaskTag(_ tagId: Int64, taskId: Int64) {
+        perform("tirar a tag da pendência") { try db.removeTaskTag(tagId, taskId: taskId) }
     }
 
     func renameMeeting(_ id: Int64, to title: String) {

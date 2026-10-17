@@ -67,7 +67,7 @@ struct MeetingBottomBar: View {
             .background(MeetingStyle.content, in: RoundedRectangle(cornerRadius: 7))
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(focus.wrappedValue == .note ? Color.accentColor : MeetingStyle.border, lineWidth: focus.wrappedValue == .note ? 2 : 1)
+                    .strokeBorder(focus.wrappedValue == .note ? Theme.accent : MeetingStyle.border, lineWidth: focus.wrappedValue == .note ? 2 : 1)
             )
             .focused(focus, equals: .note)
             .onSubmit(save)
@@ -92,7 +92,7 @@ struct MeetingBottomBar: View {
             .help("Salvar a nota (↩)")
             .controlSize(.large)
         if hasDraft {
-            button.buttonStyle(.borderedProminent)
+            button.buttonStyle(.accent)
         } else {
             button.buttonStyle(.bordered)
         }
@@ -237,7 +237,7 @@ struct MeetingBottomBar: View {
                         NSWorkspace.shared.open(url)
                     }
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.accentLink)
             case .message(let text):
                 Text(text).fixedSize(horizontal: false, vertical: true)
             }
@@ -297,7 +297,7 @@ private struct Scrubber: View {
                     .fill(Color.primary.opacity(0.12))
                     .frame(height: 4)
                 Capsule()
-                    .fill(Color.accentColor)
+                    .fill(Theme.accent)
                     .frame(width: max(0, width * fraction(position)), height: 4)
                 ForEach(Array(marks.enumerated()), id: \.offset) { _, ms in
                     RoundedRectangle(cornerRadius: 1)
@@ -369,7 +369,7 @@ private struct Transport: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.accentColor))
+                    .background(Circle().fill(Theme.accent))
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)

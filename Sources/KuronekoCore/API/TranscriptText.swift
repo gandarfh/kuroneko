@@ -3,9 +3,11 @@ import Foundation
 /// A meeting as plain Markdown: what the terminal shows and what Claude
 /// reads to summarize it. Notes stay in the timeline where they were taken.
 public enum TranscriptText {
+    /// `tasks` are the meeting's pendências, after its texts.
     public static func render(
         _ meeting: MeetingExport,
         includeDocuments: Bool = true,
+        tasks: [TaskItem] = [],
         timeZone: TimeZone = .current
     ) -> String {
         var lines = ["# \(meeting.title)", header(meeting, timeZone: timeZone)]
@@ -18,6 +20,12 @@ public enum TranscriptText {
                 let body = document.body.trimmingCharacters(in: .whitespacesAndNewlines)
                 // A summary from Claude already opens with its own heading.
                 lines += body.hasPrefix("#") ? ["", body] : ["", "## \(title(ofKind: document.kind))", "", body]
+            }
+        }
+        if !tasks.isEmpty {
+            lines += ["", "## Pendências", ""] + tasks.map { task in
+                "- \(task.text)" + (task.owner.map { " — \($0)" } ?? "")
+                    + (task.startMs.map { " [\(ClockTime.format(ms: $0))]" } ?? "") + " (\(task.status))"
             }
         }
         lines += ["", "## Transcrição", ""]
@@ -101,7 +109,7 @@ public enum SummaryPrompt {
         Uma por linha: "- o quê [mm:ss]".
 
         ## Pendências
-        Uma por linha: "- [ ] o quê — quem (se foi dito) [mm:ss]".
+        Uma por linha: "- o quê — quem (se foi dito) [mm:ss]".
 
         ## Minhas notas
         Cada NOTA do usuário, com o assunto que estava sendo falado naquele momento e o que ficou combinado sobre ele.

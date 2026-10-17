@@ -32,7 +32,8 @@ public struct MeetingListItem: Codable, Equatable, Sendable {
     public var links: [MeetingExport.Link]
     /// Files attached to its notes (prints).
     public var attachmentCount: Int
-    /// Pendências not done yet: summary lines and #acao notes.
+    /// Pendências the meeting spoke of, in any status (the name stayed
+    /// from when only open ones were counted).
     public var openTaskCount: Int
     /// Something new the user hasn't seen (a summary written by itself).
     public var newsAt: Date?
@@ -131,16 +132,18 @@ public struct MeetingExport: Codable, Equatable, Sendable {
         }
     }
 
-    /// A pendência ("task") or decisão ("decision") read from the summary.
+    /// A decisão ("decision") read from the summary. Pendências are no
+    /// longer part of its text: they are in `kuroneko tasks`.
     public struct Item: Codable, Equatable, Sendable {
         public var kind: String
         public var text: String
         public var owner: String?
         public var startMs: Int?
+        /// The line's checkbox as written.
         public var done: Bool
         /// Line of the summary, from 0.
         public var line: Int
-        /// For `kuroneko task done|undo`; pendências only.
+        /// Was the pendência's reference; always absent now.
         public var ref: String?
     }
 
@@ -172,7 +175,7 @@ public struct MeetingExport: Codable, Equatable, Sendable {
     public var timeline: [Entry]
     public var documents: [Document]
     public var links: [Link]
-    /// Pendências and decisões of the summary, in its order.
+    /// Decisões of the summary, in its order.
     public var summaryItems: [Item]
 }
 
@@ -200,7 +203,10 @@ extension AppDatabase {
         let documents = try documentKinds()
         let links = try linksByMeeting()
         let attachments = try attachmentCounts()
-        let openTasks = Dictionary(grouping: try openTasks(), by: \.meetingId)
+        var openTaskCounts: [Int64: Int] = [:]
+        for task in try tasks() {
+            for meetingId in Set(task.mentions.map(\.meetingId)) { openTaskCounts[meetingId, default: 0] += 1 }
+        }
         let unnamedVoices = try unnamedVoiceCounts()
         return WeekGrouping.group(try meetings(), now: now, calendar: calendar).flatMap { group in
             group.meetings.compactMap { meeting -> MeetingListItem? in
@@ -219,7 +225,7 @@ extension AppDatabase {
                     documents: documents[id] ?? [],
                     links: (links[id] ?? []).map(MeetingExport.Link.init),
                     attachmentCount: attachments[id] ?? 0,
-                    openTaskCount: openTasks[id]?.count ?? 0,
+                    openTaskCount: openTaskCounts[id] ?? 0,
                     newsAt: meeting.newsAt,
                     unnamedVoiceCount: unnamedVoices[id] ?? 0
                 )
@@ -307,17 +313,7 @@ extension AppDatabase {
             documents: try documents(meetingId: meetingId).map(MeetingExport.Document.init),
             links: try links(meetingId: meetingId).map(MeetingExport.Link.init),
             summaryItems: try summaryItems(meetingId: meetingId).map { item in
-                MeetingExport.Item(
-                    kind: item.kind,
-                    text: item.text,
-                    owner: item.owner,
-                    startMs: item.startMs,
-                    done: item.done,
-                    line: item.line,
-                    ref: item.kind == "task"
-                        ? TaskRef.summary(meetingId: meetingId, line: item.line, fingerprint: item.fingerprint).description
-                        : nil
-                )
+                MeetingExport.Item(kind: item.kind, text: item.text, owner: item.owner, startMs: item.startMs, done: item.done, line: item.line)
             }
         )
     }

@@ -272,21 +272,21 @@ import Testing
 @Suite struct MeetingListLayoutTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func item(_ id: Int64, hoursAgo: Double, minutes: Int?, tags: [String]) -> MeetingListItem {
+    private func item(_ id: Int64, hoursAgo: Double, minutes: Int?, tags: [String], people: [String] = []) -> MeetingListItem {
         let start = now.addingTimeInterval(-hoursAgo * 3600)
         return MeetingListItem(
             id: id, title: "R\(id)", week: "", startedAt: start,
             endedAt: minutes.map { start.addingTimeInterval(Double($0) * 60) }, durationMs: minutes.map { $0 * 60_000 },
-            status: "done", tags: tags, people: [], noteCount: 0, documents: [], links: [],
+            status: "done", tags: tags, people: people, noteCount: 0, documents: [], links: [],
             attachmentCount: 0, openTaskCount: 0, newsAt: nil, unnamedVoiceCount: 0
         )
     }
 
     private var items: [MeetingListItem] {
         [
-            item(1, hoursAgo: 1, minutes: 30, tags: ["daily", "project=pix"]),
-            item(2, hoursAgo: 30, minutes: 60, tags: ["project=boleto", "project=pix"]),
-            item(3, hoursAgo: 200, minutes: 15, tags: ["daily"]),
+            item(1, hoursAgo: 1, minutes: 30, tags: ["daily", "project=pix"], people: ["Diego", "Ana"]),
+            item(2, hoursAgo: 30, minutes: 60, tags: ["project=boleto", "project=pix"], people: ["Ana"]),
+            item(3, hoursAgo: 200, minutes: 15, tags: ["daily"], people: ["Bruno"]),
             item(4, hoursAgo: 0.2, minutes: nil, tags: []),
         ]
     }
@@ -296,6 +296,16 @@ import Testing
         #expect(MeetingListLayout.filter(items, tags: ["daily"]).map(\.id) == [1, 3])
         #expect(MeetingListLayout.filter(items, tags: ["daily", "project=pix"]).map(\.id) == [1])
         #expect(MeetingListLayout.tagKeys(in: items) == ["project"])
+    }
+
+    @Test func peopleFilterAndGroupThem() {
+        #expect(MeetingListLayout.people(in: items) == ["Ana", "Bruno", "Diego"])
+        #expect(MeetingListLayout.filter(items, people: []).map(\.id) == [1, 2, 3, 4])
+        #expect(MeetingListLayout.filter(items, people: ["Diego", "Bruno"]).map(\.id) == [1, 3])
+
+        let sections = MeetingListLayout.sections(items, grouping: .person, order: .newest, now: now)
+        #expect(sections.map(\.title) == ["Ana", "Bruno", "Diego", "Sem pessoas identificadas"])
+        #expect(sections.map { $0.items.map(\.id) } == [[1, 2], [3], [1], [4]])
     }
 
     @Test func groupsByTheValuesOfAKey() {

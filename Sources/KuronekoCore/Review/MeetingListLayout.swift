@@ -7,15 +7,16 @@ public enum MeetingOrder: String, CaseIterable, Sendable {
     case longest
 }
 
-/// How the list puts meetings together: by day, or by the values of a tag
-/// key ("project" makes a section for each project).
+/// How the list puts meetings together: by day, by who was there, or by
+/// the values of a tag key ("project" makes a section for each project).
 public enum MeetingGrouping: Hashable, Sendable {
     case day
+    case person
     case tagKey(String)
 }
 
 /// The meetings list as the user asked for it: only meetings with the
-/// chosen tags, grouped and ordered.
+/// chosen people and tags, grouped and ordered.
 public enum MeetingListLayout {
     /// Meetings carrying every one of `tags`.
     public static func filter(_ items: [MeetingListItem], tags: Set<String>) -> [MeetingListItem] {
@@ -23,13 +24,24 @@ public enum MeetingListLayout {
         return items.filter { tags.isSubset(of: $0.tags) }
     }
 
+    /// Meetings with any of `people`; none chosen is every meeting.
+    public static func filter(_ items: [MeetingListItem], people: Set<String>) -> [MeetingListItem] {
+        guard !people.isEmpty else { return items }
+        return items.filter { !people.isDisjoint(with: $0.people) }
+    }
+
+    /// Everyone named in some meeting, by name.
+    public static func people(in items: [MeetingListItem]) -> [String] {
+        Set(items.flatMap(\.people)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     /// Keys of the tags in use, to group by.
     public static func tagKeys(in items: [MeetingListItem]) -> [String] {
         Set(items.flatMap { $0.tags.compactMap(TagName.key) }).sorted()
     }
 
-    /// By tag key, one section per value in alphabetical order, then "Sem
-    /// <key>"; a meeting with two values of the key is in both.
+    /// By person or tag key, one section per name or value in alphabetical
+    /// order, then the meetings without any; a meeting with two is in both.
     public static func sections(
         _ items: [MeetingListItem],
         grouping: MeetingGrouping,
@@ -52,22 +64,35 @@ public enum MeetingListLayout {
                     DayGrouping.Group(title: day.title, isSingleDay: day.isSingleDay, items: sorted(day.items, by: .longest))
                 }
             }
+        case .person:
+            return byValue(items, order: order, without: "Sem pessoas identificadas") { Set($0.people) }
         case .tagKey(let key):
-            var byValue: [String: [MeetingListItem]] = [:]
-            var without: [MeetingListItem] = []
-            for item in items {
-                let values = Set(item.tags.filter { TagName.key(of: $0) == key }.map(TagName.value))
-                if values.isEmpty { without.append(item) }
-                for value in values { byValue[value, default: []].append(item) }
+            return byValue(items, order: order, without: "Sem \(key)") { item in
+                Set(item.tags.filter { TagName.key(of: $0) == key }.map(TagName.value))
             }
-            var sections = byValue.keys
-                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-                .map { DayGrouping.Group(title: $0, isSingleDay: false, items: sorted(byValue[$0]!, by: order)) }
-            if !without.isEmpty {
-                sections.append(DayGrouping.Group(title: "Sem \(key)", isSingleDay: false, items: sorted(without, by: order)))
-            }
-            return sections
         }
+    }
+
+    private static func byValue(
+        _ items: [MeetingListItem],
+        order: MeetingOrder,
+        without title: String,
+        values: (MeetingListItem) -> Set<String>
+    ) -> [DayGrouping.Group<MeetingListItem>] {
+        var byValue: [String: [MeetingListItem]] = [:]
+        var without: [MeetingListItem] = []
+        for item in items {
+            let values = values(item)
+            if values.isEmpty { without.append(item) }
+            for value in values { byValue[value, default: []].append(item) }
+        }
+        var sections = byValue.keys
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            .map { DayGrouping.Group(title: $0, isSingleDay: false, items: sorted(byValue[$0]!, by: order)) }
+        if !without.isEmpty {
+            sections.append(DayGrouping.Group(title: title, isSingleDay: false, items: sorted(without, by: order)))
+        }
+        return sections
     }
 
     /// Meetings of the same length or moment keep their order.

@@ -1,9 +1,9 @@
 import Foundation
 
-/// An item of a summary's "Pendências" or "Decisões" section. The summary
-/// Markdown (written by Claude, edited by the user anywhere) is the source
-/// of truth: items are read from it, and a pendência is checked off by
-/// rewriting its checkbox.
+/// An item of a summary's "Pendências" or "Decisões" section. Decisões are
+/// read from the summary as it is; pendências are how the agent hands them
+/// over, and become the meeting's pendências when the summary is saved
+/// (`SummaryItems.takeTasks`).
 public struct SummaryItem: Codable, Equatable, Sendable {
     /// From the section: "task" (Pendências) or "decision" (Decisões).
     public var kind: String
@@ -27,6 +27,10 @@ public struct SummaryItem: Codable, Equatable, Sendable {
 
     /// Identifies the item across edits that move it to another line.
     public var fingerprint: String {
+        Self.fingerprint(of: text)
+    }
+
+    static func fingerprint(of text: String) -> String {
         // FNV-1a: stable across runs, unlike hashValue.
         var hash: UInt32 = 2_166_136_261
         for byte in text.utf8 {
@@ -78,22 +82,33 @@ public enum SummaryItems {
         return items
     }
 
-    /// The Markdown with the checkbox of that line checked or unchecked
-    /// (added when the bullet has none), every other byte untouched; nil
-    /// when the line is not a bullet.
-    public static func setDone(_ done: Bool, line: Int, in markdown: String) -> String? {
-        var lines = markdown.components(separatedBy: "\n")
-        guard lines.indices.contains(line), let match = lines[line].firstMatch(of: boxPattern) else { return nil }
-        let box = done ? "[x]" : "[ ]"
-        let rest = lines[line][match.range.upperBound...]
-        lines[line] = String(match.output.1) + (match.output.2 == nil ? "\(box) " : box) + String(rest)
-        return lines.joined(separator: "\n")
+    /// The pendências of the summary, and the summary without their
+    /// sections; nil when it has none.
+    public static func takeTasks(_ markdown: String) -> (tasks: [SummaryItem], rest: String)? {
+        var rest: [String] = []
+        var inTasks = false, found = false
+        for line in markdown.components(separatedBy: "\n") {
+            if let title = heading(line) {
+                inTasks = kinds.first { title.hasPrefix($0.prefix) }?.kind == "task"
+                found = found || inTasks
+            }
+            if !inTasks { rest.append(line) }
+        }
+        guard found else { return nil }
+        // The blank lines around a section taken out become one.
+        func isBlank(_ line: String) -> Bool { line.trimmingCharacters(in: .whitespaces).isEmpty }
+        var lines: [String] = []
+        for line in rest {
+            if isBlank(line), lines.last.map(isBlank) ?? true { continue }
+            lines.append(line)
+        }
+        let text = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return (parse(markdown).filter { $0.kind == "task" }, text)
     }
 
     // MARK: - Lines
 
     nonisolated(unsafe) private static let bulletPattern = /^([ \t]*)(?:[-*+]|[0-9]+[.)])[ \t]+(?:\[([ xX]?)\][ \t]*)?(.*)$/
-    nonisolated(unsafe) private static let boxPattern = /^([ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+)(\[[ xX]?\])?/
     /// A bracket holding only times: [12:31], [1:02:03], [12:31–13:02].
     nonisolated(unsafe) private static let timesPattern = /[ \t]*\[([0-9:,;– \-]*[0-9]:[0-9]{2}[0-9:,;– \-]*)\]/
     nonisolated(unsafe) private static let timePattern = /(?:[0-9]+:)?[0-9]+:[0-9]{2}/

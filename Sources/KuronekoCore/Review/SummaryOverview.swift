@@ -110,21 +110,3 @@ public struct SummaryOverview: Equatable, Sendable {
         return SummaryOverview(intro: intro, sections: sections.filter { !$0.items.isEmpty })
     }
 }
-
-extension AppDatabase {
-    /// Pendências of one meeting, its summary's and its #acao notes, in the
-    /// order of the recording.
-    public func tasks(meetingId: Int64) throws -> [TaskItem] {
-        guard let meeting = try meeting(id: meetingId) else { return [] }
-        var tasks: [TaskItem] = []
-        if let summary = try documents(meetingId: meetingId).first(where: { $0.kind == "summary" }) {
-            tasks += SummaryItems.parse(summary.body)
-                .filter { $0.kind == "task" }
-                .map { TaskItem(summaryItem: $0, meeting: meeting, updatedAt: summary.updatedAt) }
-        }
-        tasks += try notes(meetingId: meetingId)
-            .filter { $0.tags.contains(TaskItem.noteTag) }
-            .map { TaskItem(note: $0, meeting: meeting) }
-        return tasks.sorted(by: TaskItem.order)
-    }
-}

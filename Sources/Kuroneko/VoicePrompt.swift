@@ -114,7 +114,8 @@ struct VoicePromptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 11) {
+                IconTile(systemName: "person.wave.2")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(voices.count == 1 ? "Quem é essa voz?" : "Quem são essas vozes?").font(.headline)
                     Text(meeting?.title ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -140,8 +141,9 @@ struct VoicePromptView: View {
         }
         .padding(16)
         .frame(width: VoicePromptController.width)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator))
+        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.hairline))
+        .tint(Theme.accent)
         .onHover { hovering = $0 }
         .onChange(of: isEngaged, initial: true) {
             deadline = isEngaged ? nil : Date().addingTimeInterval(Self.countdown)
@@ -197,7 +199,7 @@ struct VoicePromptView: View {
             }
         }
         .padding(10)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .panelCard(radius: Theme.smallRadius)
     }
 
     private func toggleSample(_ sample: VoiceSample, of cluster: Int) {

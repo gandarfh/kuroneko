@@ -32,7 +32,7 @@ struct KuronekoCommand {
         case .meeting(let id):
             try output(try export(id, db: db))
         case .transcript(let id):
-            print(TranscriptText.render(try export(id, db: db)), terminator: "")
+            print(TranscriptText.render(try export(id, db: db), tasks: try db.tasks(meetingId: id)), terminator: "")
         case .search(let query):
             try output(try searchResults(query, db: db))
         case .people:
@@ -87,9 +87,9 @@ struct KuronekoCommand {
             changed()
             try output(["removed": linkId])
         case .tasks:
-            try output(db.openTasks())
-        case .taskDone(let ref, let done):
-            let task = try db.setTaskDone(ref, done)
+            try output(db.tasks())
+        case .taskStatus(let ref, let status):
+            let task = try db.setTaskStatus(ref, named: status)
             changed()
             try output(task)
         case .tags:

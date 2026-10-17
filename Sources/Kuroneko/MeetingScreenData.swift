@@ -35,6 +35,8 @@ struct MeetingScreenData {
     var documents: [MeetingDocument]
     var overview: SummaryOverview
     var tasks: [TaskItem]
+    /// The statuses a pendência can be in.
+    var statuses: [TaskStatus]
     var decisions: [SummaryItem]
     var links: [MeetingLink]
     var tags: [AppliedTag]
@@ -89,6 +91,7 @@ struct MeetingScreenData {
             documents: documents.filter { $0.kind != "summary" },
             overview: summary.map { SummaryOverview.parse($0.body) } ?? SummaryOverview(intro: [], sections: []),
             tasks: try db.tasks(meetingId: meetingId),
+            statuses: try db.taskStatuses(),
             decisions: summary.map { SummaryItems.parse($0.body).filter { $0.kind == "decision" } } ?? [],
             links: try db.links(meetingId: meetingId),
             tags: try db.meetingTags(meetingId: meetingId),

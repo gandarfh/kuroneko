@@ -134,9 +134,23 @@ private func date(_ text: String) -> Date {
     }
 
     @Test func newsSubtitle() {
-        #expect(NewsText.summaryReady(openTasks: 3, decisions: 2, durationMs: 60 * 60_000) == "3 pendências · 2 decisões · 1h de reunião")
-        #expect(NewsText.summaryReady(openTasks: 1, decisions: 0, durationMs: 14 * 60_000) == "1 pendência · 14 min de reunião")
-        #expect(NewsText.summaryReady(openTasks: 0, decisions: 1, durationMs: nil) == "1 decisão")
+        #expect(NewsText.summaryReady(tasks: 3, decisions: 2, durationMs: 60 * 60_000) == "3 pendências · 2 decisões · 1h de reunião")
+        #expect(NewsText.summaryReady(tasks: 1, decisions: 0, durationMs: 14 * 60_000) == "1 pendência · 14 min de reunião")
+        #expect(NewsText.summaryReady(tasks: 0, decisions: 1, durationMs: nil) == "1 decisão")
+    }
+
+    @Test func meetingsThisWeek() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Sao_Paulo"))
+        calendar.firstWeekday = 1
+        // Thursday, 15 Oct 2026; the week started on Sunday the 11th.
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 15, hour: 12)))
+        func meeting(_ id: Int64, day: Int) throws -> Meeting {
+            Meeting(id: id, startedAt: try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: 10))), title: "R\(id)", status: .done)
+        }
+        let meetings = [try meeting(1, day: 15), try meeting(2, day: 11), try meeting(3, day: 10), try meeting(4, day: 14)]
+        #expect(MenuNumbers.meetingsThisWeek(meetings, now: now, calendar: calendar) == 3)
+        #expect(MenuNumbers.meetingsThisWeek(meetings, silent: [4], now: now, calendar: calendar) == 2)
     }
 }
 

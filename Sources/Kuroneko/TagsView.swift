@@ -28,8 +28,11 @@ struct TagsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
-                    Button("Nova tag") { editing = Tag(name: "", createdAt: Date()) }
-                        .disabled(editing != nil && editing?.id == nil)
+                    Button { editing = Tag(name: "", createdAt: Date()) } label: {
+                        Label("Nova tag", systemImage: "plus")
+                    }
+                    .buttonStyle(.accent)
+                    .disabled(editing != nil && editing?.id == nil)
                 }
                 .padding(.horizontal, 4)
                 if let editing, editing.id == nil {
@@ -49,10 +52,8 @@ struct TagsView: View {
                         }
                         .card()
                     } header: {
-                        Text(section.title)
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 6)
+                        SectionLabel(text: section.title)
+                            .padding(.top, 10)
                             .padding(.horizontal, 4)
                     }
                 }
@@ -110,24 +111,17 @@ struct TagsView: View {
             }
             Spacer(minLength: 8)
             Button(CountText.of(count, "reunião", "reuniões")) { showMeetings(tag.name) }
-                .buttonStyle(.link)
+                .buttonStyle(.accentLink)
                 .font(.callout)
                 .disabled(count == 0)
                 .help("Ver as reuniões com esta tag")
-            Menu {
+            MoreMenu(help: "Ações da tag") {
                 Button("Editar") { editing = tag }
                 Button("Ver as reuniões") { showMeetings(tag.name) }
                     .disabled(count == 0)
                 Divider()
                 Button("Apagar a tag…", role: .destructive) { deleting = tag }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .foregroundStyle(.secondary)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel("Ações da tag")
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 14)
@@ -223,7 +217,7 @@ private struct TagEditor: View {
                 }
             }
             Button("+ Condição") { conditions.append(ConditionDraft()) }
-                .buttonStyle(.link)
+                .buttonStyle(.accentLink)
                 .font(.callout)
             Text(conditions.isEmpty
                 ? "Sem condições, a tag só entra quando você põe."
@@ -247,7 +241,7 @@ private struct TagEditor: View {
                 Button("Cancelar", action: cancel)
                     .keyboardShortcut(.cancelAction)
                 Button("Salvar", action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.accent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(TagName.normalize(name) == nil)
             }

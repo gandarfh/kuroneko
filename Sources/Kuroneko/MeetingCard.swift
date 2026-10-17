@@ -82,7 +82,7 @@ struct MeetingCard: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
         .card(highlighted: isEditing)
         // While a field is open, clicks belong to it, not to the card.
         .gesture(TapGesture().onEnded(open), including: isEditing ? .subviews : .all)
@@ -116,7 +116,7 @@ struct MeetingCard: View {
     }
 
     private var actions: some View {
-        Menu {
+        MoreMenu(help: "Ações da reunião") {
             Button("Renomear") { begin(.title, text: item.title) }
             tagsMenu
             Button("Adicionar link") { begin(.link, text: "") }
@@ -130,15 +130,7 @@ struct MeetingCard: View {
                 .disabled(!canTranscribeAgain)
             Divider()
             Button("Apagar reunião e áudio", role: .destructive) { confirmingDelete = true }
-        } label: {
-            Image(systemName: "ellipsis")
-                .foregroundStyle(.secondary)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Ações da reunião")
-        .accessibilityLabel("Ações da reunião")
     }
 
     private var tagsMenu: some View {
@@ -191,7 +183,7 @@ struct MeetingCard: View {
                 .focused($fieldFocused)
                 .onSubmit(saveTitle)
             Button("Salvar", action: saveTitle)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.accent)
             Button("Cancelar", action: cancel)
                 .keyboardShortcut(.cancelAction)
         }

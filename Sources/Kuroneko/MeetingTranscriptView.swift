@@ -41,7 +41,7 @@ struct SpeechRow<Name: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 name()
                 Button(Format.clock(ms: block.startMs), action: onPlay)
-                    .buttonStyle(.link)
+                    .buttonStyle(.quietLink)
                     .font(.callout.monospacedDigit())
                     .disabled(!canPlay)
                     .help("Ouvir a partir daqui")
@@ -49,7 +49,7 @@ struct SpeechRow<Name: View>: View {
                     Spacer(minLength: 8)
                     Text("TOCANDO")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Theme.accent)
                 }
             }
             Text(text)
@@ -60,7 +60,7 @@ struct SpeechRow<Name: View>: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isCurrent ? Color.accentColor.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(isCurrent ? Theme.accent.opacity(0.1) : .clear, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var text: AttributedString {
@@ -110,7 +110,7 @@ struct NoteRow: View {
                     } label: {
                         Label(file.url.lastPathComponent, systemImage: "doc")
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.accentLink)
                 }
                 Text(meta)
                     .font(.callout)
